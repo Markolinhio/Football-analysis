@@ -1,0 +1,3 @@
++ Tried yolov8 vs pytorch faster-rcnn-resnet-fpn-v2:
+	+ yolov8 outperforms in both accuracy and running time (60ms most frames, some takes around 100ms) (without gpu, because I am currently away and had to test this on a laptop instead. I believe a gpu can make this at least 3 times faster.)
+	+ yolov8 shows a lot of potential. The cases where the model left out some people, I think we need only decrease the threshold (some prediction only has threshold around 0.33) and do some incremental training and I think it can performs great. Some human pose during the game makes it hard for the model to recognize the players. Extreme lighting condition can also cause this. Surprisingly, the model can predict two players under colision.
