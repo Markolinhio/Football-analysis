@@ -104,7 +104,7 @@ def export_coco_dataset_from_prediction(data_path, folder_name, model_name="yolo
         json.dump(coco_dict, coco)
 
 
-def merge(coco_dataset_path_1, coco_dataset_path_2, dest_path=None):
+def merge_coco_dataset(coco_dataset_path_1, coco_dataset_path_2, dest_path=None):
     coco_dataset_path_1 = os.path.abspath(coco_dataset_path_1)
     coco_dataset_path_2 = os.path.abspath(coco_dataset_path_2)
 
@@ -121,8 +121,11 @@ def merge(coco_dataset_path_1, coco_dataset_path_2, dest_path=None):
     if dest_path is None or not os.path.isdir(dest_path):
         dest_path = os.path.join(os.path.dirname(coco_dataset_path_1), 
                                  (os.path.basename(coco_dataset_path_1) + '_' + os.path.basename(coco_dataset_path_2)))
-        if not os.path.exists(dest_path):
-            os.mkdir(dest_path)
+    else:
+        dest_path = os.path.join(dest_path, 
+                                 (os.path.basename(coco_dataset_path_1) + '_' + os.path.basename(coco_dataset_path_2)))
+    if not os.path.exists(dest_path):
+        os.mkdir(dest_path)
 
     # Merged coco destination path
     dest_coco_path = os.path.join(dest_path, 'annotations')
@@ -149,14 +152,15 @@ def merge(coco_dataset_path_1, coco_dataset_path_2, dest_path=None):
 
     for i in range(len(image_list_2)):
         image_list_2[i]["id"] = image_list_2[i]["id"] + len(image_list_1)
+        old_name = image_list_2[i]["file_name"]
         # Change name of image in the 2nd coco json in case of duplication
         if image_list_2[i]["file_name"] in image_name_list_1:
-            old_name = image_list_2[i]["file_name"]
             new_name = image_list_2[i]["file_name"].replace(".png","_dup.png")
             image_list_2[i]["file_name"] = new_name
         else:
             new_name = image_list_2[i]["file_name"]
 
+        print(old_name, new_name)
         # Move images from 2nd coco dataset to new destination
         image_path_2 = os.path.join(images_path_2, old_name)
         shutil.copy(image_path_2, os.path.join(dest_images_path, new_name))
@@ -165,9 +169,9 @@ def merge(coco_dataset_path_1, coco_dataset_path_2, dest_path=None):
     # Update annotations 
     annotation_list_1 = coco_1["annotations"]
     annotation_list_2 = coco_2["annotations"]
-    for y in range(len(annotation_list_2)):
-        annotation_list_2[y]["id"] = annotation_list_2[y]["id"] + len(annotation_list_1) 
-        annotation_list_2[y]["image_id"] = annotation_list_2[y]["image_id"] + len(image_list_1)
+    for i in range(len(annotation_list_2)):
+        annotation_list_2[i]["image_id"] = annotation_list_2[i]["image_id"] + len(image_list_1)
+        annotation_list_2[i]["id"] = annotation_list_2[i]["id"] + len(annotation_list_1) 
         
     final_coco["annotations"] = sorted(annotation_list_1 + annotation_list_2, key=lambda x: x["id"])
 
@@ -175,3 +179,4 @@ def merge(coco_dataset_path_1, coco_dataset_path_2, dest_path=None):
     with open(os.path.join(dest_coco_path, 'instances_default.json'), 'w') as f:
         json.dump(final_coco, f)
             
+        
