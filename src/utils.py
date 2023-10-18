@@ -17,7 +17,8 @@ from ultralytics import YOLO
 
 
 def export_coco_dataset_from_prediction(data_path, folder_name, model_name="yolov8n.pt"):
-    model = YOLO(model_name)
+    model_path = os.path.join(os.path.dirname(os.getcwd()), 'models')
+    model = YOLO(os.path.join(model_path, model_name))
 
     images_path = os.path.join(data_path, 'images' + '/' + folder_name)
 
@@ -99,5 +100,78 @@ def export_coco_dataset_from_prediction(data_path, folder_name, model_name="yolo
     coco_dict["images"] = images
     coco_dict["annotations"] = annotations
 
-    with open(os.path.join(dest_coco_path, folder_name +'.json'), 'w') as coco:
+    with open(os.path.join(dest_coco_path, 'instances_default.json'), 'w') as coco:
         json.dump(coco_dict, coco)
+
+
+def merge(coco_dataset_path_1, coco_dataset_path_2, dest_path=None):
+    coco_dataset_path_1 = os.path.abspath(coco_dataset_path_1)
+    coco_dataset_path_2 = os.path.abspath(coco_dataset_path_2)
+
+    # Load data
+    images_path_1 = os.path.join(coco_dataset_path_1, 'images')
+    images_path_2 = os.path.join(coco_dataset_path_2, 'images')
+    coco_path_1 = os.path.join(coco_dataset_path_1, 'annotations/instances_default.json')
+    coco_path_2 = os.path.join(coco_dataset_path_2, 'annotations/instances_default.json')
+
+    coco_1 = json.load(open(coco_path_1))
+    coco_2 = json.load(open(coco_path_2))
+
+    # Create destination path
+    if dest_path is None or not os.path.isdir(dest_path):
+        dest_path = os.path.join(os.path.dirname(coco_dataset_path_1), 
+                                 (os.path.basename(coco_dataset_path_1) + '_' + os.path.basename(coco_dataset_path_2)))
+        if not os.path.exists(dest_path):
+            os.mkdir(dest_path)
+
+    # Merged coco destination path
+    dest_coco_path = os.path.join(dest_path, 'annotations')
+    if not os.path.exists(dest_coco_path):
+        os.mkdir(dest_coco_path)
+    
+    # Merged images folder
+    dest_images_path = os.path.join(dest_path, 'images')
+    if not os.path.exists(dest_images_path):
+        os.mkdir(dest_images_path)
+
+    # Update metadata
+    final_coco = coco_1
+    final_coco["info"]["description"] = "merge_files"
+    final_coco["license"]["name"] = "merge_files"
+
+    # Update image_name for second coco and move images from two dataset into destination folder
+    image_list_1 = coco_1["images"]
+    image_list_2 = coco_2["images"]
+    image_name_list_1 = [i["file_name"] for i in image_list_1]
+    for image_name_1 in image_name_list_1:
+        image_path_1 = os.path.join(images_path_1, image_name_1)
+        shutil.copy(image_path_1, os.path.join(dest_images_path, image_name_1))
+
+    for i in range(len(image_list_2)):
+        image_list_2[i]["id"] = image_list_2[i]["id"] + len(image_list_1)
+        # Change name of image in the 2nd coco json in case of duplication
+        if image_list_2[i]["file_name"] in image_name_list_1:
+            old_name = image_list_2[i]["file_name"]
+            new_name = image_list_2[i]["file_name"].replace(".png","_dup.png")
+            image_list_2[i]["file_name"] = new_name
+        else:
+            new_name = image_list_2[i]["file_name"]
+
+        # Move images from 2nd coco dataset to new destination
+        image_path_2 = os.path.join(images_path_2, old_name)
+        shutil.copy(image_path_2, os.path.join(dest_images_path, new_name))
+    final_coco["images"] = sorted(image_list_1 + image_list_2, key=lambda x: x["file_name"])
+
+    # Update annotations 
+    annotation_list_1 = coco_1["annotations"]
+    annotation_list_2 = coco_2["annotations"]
+    for y in range(len(annotation_list_2)):
+        annotation_list_2[y]["id"] = annotation_list_2[y]["id"] + len(annotation_list_1) 
+        annotation_list_2[y]["image_id"] = annotation_list_2[y]["image_id"] + len(image_list_1)
+        
+    final_coco["annotations"] = annotation_list_1 + annotation_list_2 
+
+
+    with open(os.path.join(dest_coco_path, 'instances_default.json'), 'w') as f:
+        json.dump(final_coco, f)
+            
