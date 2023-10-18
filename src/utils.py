@@ -160,7 +160,7 @@ def merge(coco_dataset_path_1, coco_dataset_path_2, dest_path=None):
         # Move images from 2nd coco dataset to new destination
         image_path_2 = os.path.join(images_path_2, old_name)
         shutil.copy(image_path_2, os.path.join(dest_images_path, new_name))
-    final_coco["images"] = sorted(image_list_1 + image_list_2, key=lambda x: x["file_name"])
+    final_coco["images"] = sorted(image_list_1 + image_list_2, key=lambda x: x["id"])
 
     # Update annotations 
     annotation_list_1 = coco_1["annotations"]
@@ -169,7 +169,7 @@ def merge(coco_dataset_path_1, coco_dataset_path_2, dest_path=None):
         annotation_list_2[y]["id"] = annotation_list_2[y]["id"] + len(annotation_list_1) 
         annotation_list_2[y]["image_id"] = annotation_list_2[y]["image_id"] + len(image_list_1)
         
-    final_coco["annotations"] = annotation_list_1 + annotation_list_2 
+    final_coco["annotations"] = sorted(annotation_list_1 + annotation_list_2, key=lambda x: x["id"])
 
 
     with open(os.path.join(dest_coco_path, 'instances_default.json'), 'w') as f:
