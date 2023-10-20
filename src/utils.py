@@ -18,6 +18,7 @@ from ultralytics import YOLO
 
 def export_coco_dataset_from_prediction(data_path, folder_name, model_name="yolov8n.pt"):
     model_path = os.path.join(os.path.dirname(os.getcwd()), 'models')
+    print(model_path)
     model = YOLO(os.path.join(model_path, model_name))
 
     images_path = os.path.join(data_path, 'images' + '/' + folder_name)
@@ -160,7 +161,6 @@ def merge_coco_dataset(coco_dataset_path_1, coco_dataset_path_2, dest_path=None)
         else:
             new_name = image_list_2[i]["file_name"]
 
-        print(old_name, new_name)
         # Move images from 2nd coco dataset to new destination
         image_path_2 = os.path.join(images_path_2, old_name)
         shutil.copy(image_path_2, os.path.join(dest_images_path, new_name))
