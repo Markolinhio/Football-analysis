@@ -11,6 +11,10 @@ import math
 import json
 import yaml
 import shutil
+import albumentations
+from pathlib import Path
+from yaml.loader import SafeLoader
+from albumentations.core.transforms_interface import ImageOnlyTransform
 from datetime import date
 plt.rcParams["figure.figsize"] = (24,18)
 
@@ -286,3 +290,65 @@ def coco2yolo(train_dataset_path, val_dataset_path=None, dest_path=None, split_v
                 }
     with open(yaml_path, 'w') as yaml_file:
         yaml.dump(info_dict, yaml_file)
+            
+def augment_yolo(yaml_file, dataset_path):
+    
+    def salt_pepper(image):
+        salt_vs_pepper = 0.5                  
+        amount = 0.01
+        out = np.copy(image)
+        
+        # Salt mode
+        num_salt = np.ceil(amount * image.size * salt_vs_pepper)
+        coords = np.array([np.random.randint(0, i - 1, int(num_salt))
+              for i in image.shape])
+        salt_idx = np.where(np.array(coords[2] == 1))
+        for idx in salt_idx:
+            h, w = coords[0][idx], coords[1][idx]
+            out[h, w, :] = 255
+        #out[coords] = 255
+
+        # Pepper mode
+        num_pepper = np.ceil(amount* image.size * (1. - salt_vs_pepper))
+        coords = [np.random.randint(0, i - 1, int(num_pepper))
+              for i in image.shape]
+        pepper_idx = np.where(np.array(coords[2] == 1))
+        for idx in pepper_idx:
+            h, w = coords[0][idx], coords[1][idx]
+            out[h, w, :] = 0
+        return out 
+
+    class Salt_pepper(ImageOnlyTransform):
+        def apply(self, img, **params):
+            return salt_pepper(img)
+
+    test_path = data["test"]
+    train_path = data["train"]
+    val_path = data["val"]
+    storage = [test_path,train_path,val_path]
+    
+    # Init augmentation schema
+    transform = albumentations.Compose([
+        albumentations.HueSaturationValue(p=0.5),
+        albumentations.RandomBrightnessContrast(brightness_limit=0.25, contrast_limit=0, p=0.5),
+        Salt_pepper()])
+
+    # Augmentation starts
+    for file_path in storage:
+        file_path = os.path.join(dataset_path, file_path)
+        if not os.path.exists(file_path):
+            continue
+        images_list = os.listdir(file_path)
+        generate_data = True
+        for image in images_list:
+            image_path = os.path.join(file_path, image)
+            label_path = os.path.join(os.path.dirname(file_path)+'/labels',image[:-4]+'.txt')
+            pic = cv2.imread(product_path, cv2.COLOR_BGR2RGB)
+            for i in range(8):
+                transformed_image = transform(image = pic)['image']
+                transformed_image_name = image[:-4] + '_transformed_' + str(i) + '.png'
+                transformed_label_name = image[:-4] + '_transformed_' + str(i) + '.txt'
+                if generate_data:
+                    cv2.imwrite(os.path.join(file_path,transformed_image_name), transformed_image)
+                    shutil.copy(label_path, os.path.join(os.path.dirname(file_path)+'/labels', transformed_label_name))
+    
