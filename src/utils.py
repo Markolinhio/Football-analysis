@@ -9,20 +9,25 @@ import numpy as np
 import matplotlib.pyplot as plt
 import math
 import json
+import yaml
 import shutil
 from datetime import date
 plt.rcParams["figure.figsize"] = (24,18)
 
+from sklearn.model_selection import train_test_split
+
 from ultralytics import YOLO
 
 
+# Generate COCO dataset from YOLO model
 def export_coco_dataset_from_prediction(data_path, folder_name, model_name="yolov8n.pt"):
     model_path = os.path.join(os.path.dirname(os.getcwd()), 'models')
+    print(model_path)
     model = YOLO(os.path.join(model_path, model_name))
 
     images_path = os.path.join(data_path, 'images' + '/' + folder_name)
 
-    dest_path = os.path.join(data_path, 'annotated_frames' + '/' + folder_name)
+    dest_path = os.path.join(data_path, 'coco_datasets' + '/' + folder_name)
     if not os.path.exists(dest_path):
         os.mkdir(dest_path)
 
@@ -104,7 +109,8 @@ def export_coco_dataset_from_prediction(data_path, folder_name, model_name="yolo
         json.dump(coco_dict, coco)
 
 
-def merge(coco_dataset_path_1, coco_dataset_path_2, dest_path=None):
+# Merge two COCO dataset
+def merge_coco_dataset(coco_dataset_path_1, coco_dataset_path_2, dest_path=None):
     coco_dataset_path_1 = os.path.abspath(coco_dataset_path_1)
     coco_dataset_path_2 = os.path.abspath(coco_dataset_path_2)
 
@@ -121,8 +127,11 @@ def merge(coco_dataset_path_1, coco_dataset_path_2, dest_path=None):
     if dest_path is None or not os.path.isdir(dest_path):
         dest_path = os.path.join(os.path.dirname(coco_dataset_path_1), 
                                  (os.path.basename(coco_dataset_path_1) + '_' + os.path.basename(coco_dataset_path_2)))
-        if not os.path.exists(dest_path):
-            os.mkdir(dest_path)
+    else:
+        dest_path = os.path.join(dest_path, 
+                                 (os.path.basename(coco_dataset_path_1) + '_' + os.path.basename(coco_dataset_path_2)))
+    if not os.path.exists(dest_path):
+        os.mkdir(dest_path)
 
     # Merged coco destination path
     dest_coco_path = os.path.join(dest_path, 'annotations')
@@ -149,9 +158,9 @@ def merge(coco_dataset_path_1, coco_dataset_path_2, dest_path=None):
 
     for i in range(len(image_list_2)):
         image_list_2[i]["id"] = image_list_2[i]["id"] + len(image_list_1)
+        old_name = image_list_2[i]["file_name"]
         # Change name of image in the 2nd coco json in case of duplication
         if image_list_2[i]["file_name"] in image_name_list_1:
-            old_name = image_list_2[i]["file_name"]
             new_name = image_list_2[i]["file_name"].replace(".png","_dup.png")
             image_list_2[i]["file_name"] = new_name
         else:
@@ -165,9 +174,9 @@ def merge(coco_dataset_path_1, coco_dataset_path_2, dest_path=None):
     # Update annotations 
     annotation_list_1 = coco_1["annotations"]
     annotation_list_2 = coco_2["annotations"]
-    for y in range(len(annotation_list_2)):
-        annotation_list_2[y]["id"] = annotation_list_2[y]["id"] + len(annotation_list_1) 
-        annotation_list_2[y]["image_id"] = annotation_list_2[y]["image_id"] + len(image_list_1)
+    for i in range(len(annotation_list_2)):
+        annotation_list_2[i]["image_id"] = annotation_list_2[i]["image_id"] + len(image_list_1)
+        annotation_list_2[i]["id"] = annotation_list_2[i]["id"] + len(annotation_list_1) 
         
     final_coco["annotations"] = sorted(annotation_list_1 + annotation_list_2, key=lambda x: x["id"])
 
@@ -175,3 +184,105 @@ def merge(coco_dataset_path_1, coco_dataset_path_2, dest_path=None):
     with open(os.path.join(dest_coco_path, 'instances_default.json'), 'w') as f:
         json.dump(final_coco, f)
             
+
+# Convert COCO dataset to YOLO dataset format        
+def coco2yolo(train_dataset_path, val_dataset_path=None, dest_path=None, split_val=True):
+
+    def ann2txt(coco_file, image_info_list, images_path, dest_images_path, dest_labels_path):
+        for image_info in image_info_list:
+            image_name = image_info['file_name']
+            image_w, image_h = image_info['width'], image_info['height']
+
+            with open(os.path.join(dest_labels_path, image_name[:-4]+'.txt'), 'w') as f:
+                for annotation in coco_file['annotations']:
+                    if annotation['image_id'] != image_info['id']:
+                        continue
+                    
+                    # Convert annotation information to YOLO format
+                    label_id = annotation['category_id']
+                    startX, startY, w, h = annotation['bbox']
+                    endX, endY = [startX + w, startY + h]
+
+                    x_center=((2*startX+w)/(2*image_w))
+                    y_center=((2*startY+h)/(2*image_h))
+                    w_box=w/image_w
+                    h_box=h/image_h
+
+                    line = '{} {} {} {} {}'.format(label_id-1, x_center, y_center, w_box, h_box)
+                    f.write(line + '\n')
+
+            # Resize images to HD scale
+            image = cv2.imread(os.path.join(images_path, image_name), cv2.IMREAD_UNCHANGED)
+            resized_image = cv2.resize(image, (1280,720))
+            cv2.imwrite(os.path.join(dest_images_path, image_name), resized_image)
+        
+        return dest_images_path
+
+    if dest_path is None:
+        dest_path = os.path.join(os.path.dirname(train_dataset_path), os.path.basename(train_dataset_path) + '_yolov8')
+    
+    if not os.path.exists(dest_path):
+        os.mkdir(dest_path)
+
+    train_dest_path = os.path.join(dest_path, 'train')
+    test_dest_path = os.path.join(dest_path, 'test/images')
+    val_dest_path = os.path.join(dest_path, 'valid')
+    train_dest_images_path = os.path.join(train_dest_path, 'images')
+    train_dest_labels_path = os.path.join(train_dest_path, 'labels')
+    val_dest_images_path = os.path.join(val_dest_path, 'images')
+    val_dest_labels_path = os.path.join(val_dest_path, 'labels')
+    for dest_paths in [train_dest_path, val_dest_path, train_dest_images_path, train_dest_labels_path, val_dest_images_path, val_dest_labels_path]:
+        if not os.path.exists(dest_paths):
+            os.mkdir(dest_paths)
+
+    dest_images_path_list = [train_dest_images_path, val_dest_images_path]
+    dest_labels_path_list = [train_dest_labels_path, val_dest_labels_path]
+
+    if val_dataset_path is not None:
+        split_val = False
+        
+        for i in range(2):
+            dataset_path = [train_dataset_path, val_dataset_path][i]
+            coco_path = os.path.join(dataset_path, 'annotations/instances_default.json')
+            images_path = os.path.join(dataset_path, 'images')
+            coco = json.load(open(coco_path))
+
+            image_info_list = coco['images']
+
+            dest_images_path = dest_images_path_list[i]
+            dest_labels_path = dest_labels_path_list[i]
+
+            ann2txt(coco, image_info_list, images_path, dest_images_path, dest_labels_path)
+
+    
+    elif val_dataset_path is None and split_val:
+        coco_path = os.path.join(train_dataset_path, 'annotations/instances_default.json')
+        images_path = os.path.join(train_dataset_path, 'images')
+        coco = json.load(open(coco_path))
+
+        image_list = coco['images']
+
+        train_image_list, val_image_list = train_test_split(image_list, shuffle=True, test_size=0.2, random_state=42)
+
+        for i in range(2):
+            dest_images_path = dest_images_path_list[i]
+            dest_labels_path = dest_labels_path_list[i]
+
+            image_info_list = [train_image_list, val_image_list][i]
+
+            ann2txt(coco, image_info_list, images_path, dest_images_path, dest_labels_path)
+
+
+    else:
+        return "Validation set path required or set split_val to True to split train dataset to train and validation set"
+    
+    yaml_path = os.path.join(dest_path, 'data.yaml')
+
+    info_dict = {'train': train_dest_images_path,
+                'val': val_dest_images_path,
+                'test' : test_dest_path, 
+                'nc': len(coco['categories']),
+                'names': [category['name'] for category in coco['categories']]
+                }
+    with open(yaml_path, 'w') as yaml_file:
+        yaml.dump(info_dict, yaml_file)
