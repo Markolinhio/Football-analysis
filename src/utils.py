@@ -282,9 +282,9 @@ def coco2yolo(train_dataset_path, val_dataset_path=None, dest_path=None, split_v
     
     yaml_path = os.path.join(dest_path, 'data.yaml')
 
-    info_dict = {'train': train_dest_images_path,
-                'val': val_dest_images_path,
-                'test' : test_dest_path, 
+    info_dict = {'train': os.path.relpath(train_dest_images_path, dest_path),
+                'val': os.path.relpath(val_dest_images_path, dest_path),
+                'test' : os.path.relpath(test_dest_path, dest_path), 
                 'nc': len(coco['categories']),
                 'names': [category['name'] for category in coco['categories']]
                 }
