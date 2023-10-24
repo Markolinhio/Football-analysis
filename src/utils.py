@@ -291,7 +291,8 @@ def coco2yolo(train_dataset_path, val_dataset_path=None, dest_path=None, split_v
     with open(yaml_path, 'w') as yaml_file:
         yaml.dump(info_dict, yaml_file)
             
-def augment_yolo(yaml_file, dataset_path):
+
+def augment_yolo(yaml_path, dataset_path):
     
     def salt_pepper(image):
         salt_vs_pepper = 0.5                  
@@ -322,9 +323,12 @@ def augment_yolo(yaml_file, dataset_path):
         def apply(self, img, **params):
             return salt_pepper(img)
 
-    test_path = data["test"]
-    train_path = data["train"]
-    val_path = data["val"]
+    with open(yaml_path) as f:
+        yaml_file = yaml.load(f, Loader=SafeLoader)
+
+    test_path = yaml_file["test"]
+    train_path = yaml_file["train"]
+    val_path = yaml_file["val"]
     storage = [test_path,train_path,val_path]
     
     # Init augmentation schema
@@ -332,23 +336,28 @@ def augment_yolo(yaml_file, dataset_path):
         albumentations.HueSaturationValue(p=0.5),
         albumentations.RandomBrightnessContrast(brightness_limit=0.25, contrast_limit=0, p=0.5),
         Salt_pepper()])
+    
+    
 
     # Augmentation starts
     for file_path in storage:
         file_path = os.path.join(dataset_path, file_path)
         if not os.path.exists(file_path):
             continue
+
         images_list = os.listdir(file_path)
         generate_data = True
-        for image in images_list:
-            image_path = os.path.join(file_path, image)
-            label_path = os.path.join(os.path.dirname(file_path)+'/labels',image[:-4]+'.txt')
-            pic = cv2.imread(product_path, cv2.COLOR_BGR2RGB)
+        for image_name in images_list:
+            image_path = os.path.join(file_path, image_name)
+            label_path = os.path.join(os.path.dirname(file_path)+'/labels', image_name[:-4]+'.txt')
+            image = cv2.imread(image_path, cv2.COLOR_BGR2RGB)
             for i in range(8):
-                transformed_image = transform(image = pic)['image']
-                transformed_image_name = image[:-4] + '_transformed_' + str(i) + '.png'
-                transformed_label_name = image[:-4] + '_transformed_' + str(i) + '.txt'
+                transformed_image = transform(image=image)['image']
+                transformed_image_name = image_name[:-4] + '_transformed_' + str(i) + '.png'
+                transformed_label_name = image_name[:-4] + '_transformed_' + str(i) + '.txt'
                 if generate_data:
                     cv2.imwrite(os.path.join(file_path,transformed_image_name), transformed_image)
                     shutil.copy(label_path, os.path.join(os.path.dirname(file_path)+'/labels', transformed_label_name))
+
+        print(len(os.listdir(image_path)), len(os.listdir(label_path)))
     
