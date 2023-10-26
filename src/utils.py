@@ -334,7 +334,7 @@ def augment_yolo(yaml_path, dataset_path):
     # Init augmentation schema
     transform = albumentations.Compose([
         albumentations.HueSaturationValue(p=0.5),
-        albumentations.RandomBrightnessContrast(brightness_limit=0.25, contrast_limit=0, p=0.5),
+        albumentations.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.1, p=0.5),
         Salt_pepper()])
     
     
