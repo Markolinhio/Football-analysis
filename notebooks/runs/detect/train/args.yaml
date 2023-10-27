@@ -1,13 +1,11 @@
 task: detect
 mode: train
 model: /media/khoa-ys/Personal/Projects/Football Analysis/Football-analysis/models/yolov8n.pt
-data: /media/khoa-ys/Personal/Projects/Football Analysis/Football-analysis/data/coco_datasets/merge_train_fixed/annotations/instance_default.json
-epochs: 100
+data: /media/khoa-ys/Personal/Projects/Football Analysis/Football-analysis/data/coco_datasets/merge_train_fixed_yolov8/data.yaml
+epochs: 1000
 patience: 50
-batch: 16
-imgsz:
-- 2560
-- 1440
+batch: 32
+imgsz: 640
 save: true
 save_period: -1
 cache: false
@@ -95,4 +93,4 @@ mixup: 0.0
 copy_paste: 0.0
 cfg: null
 tracker: botsort.yaml
-save_dir: runs/detect/train
+save_dir: runs/detect/train43
