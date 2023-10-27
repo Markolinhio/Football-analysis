@@ -318,11 +318,7 @@
   },
   {
    "cell_type": "code",
-<<<<<<< HEAD
    "execution_count": 12,
-=======
-   "execution_count": null,
->>>>>>> 59142d4378ce3698ada5eaa229e6235d7ca3c568
    "metadata": {},
    "outputs": [
     {
@@ -402,38 +398,9 @@
   },
   {
    "cell_type": "code",
-   "execution_count": 109,
+   "execution_count": null,
    "metadata": {},
-   "outputs": [
-    {
-     "name": "stderr",
-     "output_type": "stream",
-     "text": [
-      "/tmp/ipykernel_28670/1315073221.py:27: DeprecationWarning: `np.int0` is a deprecated alias for `np.intp`.  (Deprecated NumPy 1.24)\n",
-      "  rect = np.int0(cv2.boxPoints(cv2.minAreaRect(contours)))\n",
-      "\n",
-      "0: 384x640 13 persons, 44.7ms\n",
-      "Speed: 2.3ms preprocess, 44.7ms inference, 0.7ms postprocess per image at shape (1, 3, 384, 640)\n"
-     ]
-    },
-    {
-     "name": "stdout",
-     "output_type": "stream",
-     "text": [
-      "True\n",
-      "tensor([0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.])\n",
-      "[2 2 0 2 0 2 0 0 2 2 2 2 1]\n"
-     ]
-    },
-    {
-     "name": "stderr",
-     "output_type": "stream",
-     "text": [
-      "/home/huy-ng/Project/Football-analysis/.venv/lib/python3.8/site-packages/sklearn/cluster/_kmeans.py:1412: FutureWarning: The default value of `n_init` will change from 10 to 'auto' in 1.4. Set the value of `n_init` explicitly to suppress the warning\n",
-      "  super()._check_params_vs_input(X, default_n_init=10)\n"
-     ]
-    }
-   ],
+   "outputs": [],
    "source": [
     "from sklearn.cluster import KMeans\n",
     "\n",
@@ -476,7 +443,6 @@
     "\n",
     "results = model.predict(rgb_image)\n",
     "boxes = results[0].boxes\n",
-    "print(boxes.cls)\n",
     "# Compute hue of grass\n",
     "grass_average = rgb_image[:,:,::-1].mean(axis=0).mean(axis=0)\n",
     "# Assignment \n",
@@ -688,7 +654,8 @@
     "        'date_created': str(creation_date),\n",
     "        'year': year,\n",
     "    }\n",
-    "\n",
+    "    \n",
+    "    \n",
     "    def crop_image(rgb_image):\n",
     "        hsv_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2HSV)\n",
     "        lower_green = np.array([35, 20, 50])\n",
@@ -715,8 +682,6 @@
     "        rgb_image = cv2.resize(rgb_image[min_y:max_y, min_x:max_x], (w, h))\n",
     "        return rgb_image\n",
     "\n",
-    "\n",
-    "\n",
     "    images = []\n",
     "    annotations = []\n",
     "\n",
@@ -738,7 +703,6 @@
     "\n",
     "        # Copy original image to coco dataset destination\n",
     "        shutil.copy(frame, os.path.join(dest_images_path, image_name))\n",
-    "\n",
     "\n",
     "        # Modify prior -> to get assignment\n",
     "        rgb_image = cv2.imread(image_path, cv2.COLOR_BGR2RGB)\n",
@@ -763,8 +727,6 @@
     "        s = kmeans.fit(assignment)\n",
     "        labels = kmeans.labels_\n",
     "\n",
-    "\n",
-    "\n",
     "        # Write information to coco dataset:\n",
     "        boxes = results[0].boxes\n",
     "        for box in boxes:\n",
@@ -781,11 +743,6 @@
     "            annotations.append(bbox)\n",
     "            obj_id += 1\n",
     "        frame_id += 1\n",
-    "\n",
-    "\n",
-    "\n",
-    "        \n",
-    "\n",
     "\n",
     "    coco_dict[\"info\"] = coco_info\n",
     "    coco_dict[\"license\"] = {'name': folder_name,\n",
