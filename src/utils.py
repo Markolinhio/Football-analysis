@@ -401,4 +401,7 @@ def augment_yolo(yaml_path, dataset_path):
                     shutil.copy(label_path, os.path.join(os.path.dirname(file_path)+'/labels', transformed_label_name))
 
         print(len(os.listdir(image_path)), len(os.listdir(label_path)))
+
+
+
     
