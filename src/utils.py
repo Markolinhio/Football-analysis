@@ -23,8 +23,39 @@ from sklearn.model_selection import train_test_split
 from ultralytics import YOLO
 
 
+# Detect largest contour in the image along with its bounding rectangle and convex hull. Used for field segmentation and misc task when needed
+def detect_largest_contour(image, threshold=False):
+    # Contour detection
+    if len(image.shape) == 2 or image.shape[2] == 1:
+        if threshold:
+            _, thresh = cv2.threshold(image, 150, 255, cv2.THRESH_BINARY)
+
+            contours, _ = cv2.findContours(image=thresh, mode=cv2.RETR_EXTERNAL,
+                                        method=cv2.CHAIN_APPROX_NONE)
+            
+        else:
+            contours, _ = cv2.findContours(image=image, mode=cv2.RETR_EXTERNAL,
+                                        method=cv2.CHAIN_APPROX_NONE)
+
+    else:
+        return "Image should be one channel"
+        
+    # Take the largest contour
+    contours = max(contours, key=cv2.contourArea)
+
+    # Find the bounding box corresponding to the contour
+    rect = np.int16(cv2.boundingRect(contours))
+
+    # Find the convex hull corresponding to the bounding box
+    convex_hull = cv2.convexHull(contours)
+
+    return contours, rect, convex_hull
+
+
+
 # Generate COCO dataset from YOLO model
 def export_coco_dataset_from_prediction(data_path, folder_name, model_name="yolov8n.pt"):
+    # Declare input and output paths
     model_path = os.path.join(os.path.dirname(os.getcwd()), 'models')
     print(model_path)
     model = YOLO(os.path.join(model_path, model_name))
@@ -43,7 +74,7 @@ def export_coco_dataset_from_prediction(data_path, folder_name, model_name="yolo
     if not os.path.exists(dest_coco_path):
         os.mkdir(dest_coco_path)
 
-    
+    # Initialize fixed COCO attributes
     coco_dict ={}
     frame_id = 1
     obj_id = 1
@@ -61,9 +92,9 @@ def export_coco_dataset_from_prediction(data_path, folder_name, model_name="yolo
         'year': year,
     }
 
+    # Predict and put the information to COCO dict
     images = []
     annotations = []
-
 
     for image_name in os.listdir(images_path):
         frame = os.path.join(images_path, image_name)
@@ -100,7 +131,7 @@ def export_coco_dataset_from_prediction(data_path, folder_name, model_name="yolo
             obj_id += 1
         frame_id += 1
 
-
+    # Write COCO dict
     coco_dict["info"] = coco_info
     coco_dict["license"] = {'name': folder_name,
                             'id': '',
@@ -197,6 +228,9 @@ def coco2yolo(train_dataset_path, val_dataset_path=None, dest_path=None, split_v
             image_name = image_info['file_name']
             image_w, image_h = image_info['width'], image_info['height']
 
+            # Write COCO bounding box as YOLO information: 
+            # COCO: starting coodinates and width, height of the bounding box, category_id starts at 1
+            # YOLO: to center coordinate of the bounding box and its width and height, category_id starts at 0 (COCO id - 1)
             with open(os.path.join(dest_labels_path, image_name[:-4]+'.txt'), 'w') as f:
                 for annotation in coco_file['annotations']:
                     if annotation['image_id'] != image_info['id']:
@@ -228,6 +262,7 @@ def coco2yolo(train_dataset_path, val_dataset_path=None, dest_path=None, split_v
     if not os.path.exists(dest_path):
         os.mkdir(dest_path)
 
+    # Declare destination paths
     train_dest_path = os.path.join(dest_path, 'train')
     test_dest_path = os.path.join(dest_path, 'test/images')
     val_dest_path = os.path.join(dest_path, 'valid')
@@ -242,6 +277,7 @@ def coco2yolo(train_dataset_path, val_dataset_path=None, dest_path=None, split_v
     dest_images_path_list = [train_dest_images_path, val_dest_images_path]
     dest_labels_path_list = [train_dest_labels_path, val_dest_labels_path]
 
+    # If validation set path declared, write images and label to the corresponding destination
     if val_dataset_path is not None:
         split_val = False
         
@@ -258,7 +294,7 @@ def coco2yolo(train_dataset_path, val_dataset_path=None, dest_path=None, split_v
 
             ann2txt(coco, image_info_list, images_path, dest_images_path, dest_labels_path)
 
-    
+    # If no validation set path is declared, split the images and label list as 80/20 and write images and label to the corresponding destination
     elif val_dataset_path is None and split_val:
         coco_path = os.path.join(train_dataset_path, 'annotations/instances_default.json')
         images_path = os.path.join(train_dataset_path, 'images')
@@ -276,10 +312,11 @@ def coco2yolo(train_dataset_path, val_dataset_path=None, dest_path=None, split_v
 
             ann2txt(coco, image_info_list, images_path, dest_images_path, dest_labels_path)
 
-
+    # If no validation set declared and split_val as False, return error
     else:
         return "Validation set path required or set split_val to True to split train dataset to train and validation set"
     
+    # Write YAML metada of YOLO dataset
     yaml_path = os.path.join(dest_path, 'data.yaml')
 
     info_dict = {'train': os.path.relpath(train_dest_images_path, dest_path),
@@ -326,36 +363,40 @@ def augment_yolo(yaml_path, dataset_path):
     with open(yaml_path) as f:
         yaml_file = yaml.load(f, Loader=SafeLoader)
 
+    # Declare destination path
     test_path = yaml_file["test"]
     train_path = yaml_file["train"]
     val_path = yaml_file["val"]
     storage = [test_path,train_path,val_path]
     
-    # Init augmentation schema
+    # Augmentation pipeline of three augmentation:
+    # Hue saturation transform between -25% and 25%
+    # Random Brightness between -10% and 10%
+    # Salt and pepper of 1% of pixels
     transform = albumentations.Compose([
-        albumentations.HueSaturationValue(p=0.5),
-        albumentations.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.1, p=0.5),
+        albumentations.HueSaturationValue(p=0.5), #value dau???
+        albumentations.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.1, p=0.5), #sao lai co contrast limit? @@
         Salt_pepper()])
-    
-    
 
-    # Augmentation starts
+    # Iterate over the images in the dataset path, augment them, and write them to the corresponding destination
     for file_path in storage:
         file_path = os.path.join(dataset_path, file_path)
         if not os.path.exists(file_path):
             continue
-
         images_list = os.listdir(file_path)
-        generate_data = True
+
+        generate_data = True # Biet cai generate data lam gi ko ma ghi o day? @@
         for image_name in images_list:
             image_path = os.path.join(file_path, image_name)
             label_path = os.path.join(os.path.dirname(file_path)+'/labels', image_name[:-4]+'.txt')
             image = cv2.imread(image_path, cv2.COLOR_BGR2RGB)
+
+            # Run an image through augmentation pipeline of 2^3 times to try getting all combination of augmentation
             for i in range(8):
                 transformed_image = transform(image=image)['image']
                 transformed_image_name = image_name[:-4] + '_transformed_' + str(i) + '.png'
                 transformed_label_name = image_name[:-4] + '_transformed_' + str(i) + '.txt'
-                if generate_data:
+                if generate_data: # Biet cai generate data lam gi ko ma ghi o day? @@
                     cv2.imwrite(os.path.join(file_path,transformed_image_name), transformed_image)
                     shutil.copy(label_path, os.path.join(os.path.dirname(file_path)+'/labels', transformed_label_name))
 
