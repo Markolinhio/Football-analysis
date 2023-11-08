@@ -12,6 +12,12 @@ import json
 import yaml
 import shutil
 import albumentations
+
+from sklearn.cluster import KMeans
+from collections import Counter
+from colormath.color_objects import sRGBColor, LabColor
+from colormath.color_conversions import convert_color
+from colormath.color_diff import delta_e_cie2000
 from pathlib import Path
 from yaml.loader import SafeLoader
 from albumentations.core.transforms_interface import ImageOnlyTransform
@@ -401,6 +407,181 @@ def augment_yolo(yaml_path, dataset_path):
                     shutil.copy(label_path, os.path.join(os.path.dirname(file_path)+'/labels', transformed_label_name))
 
         print(len(os.listdir(image_path)), len(os.listdir(label_path)))
+    
+# Replace old def "asscalar" to .item()
+def patch_asscalar(a):
+    return a.item()
+
+setattr(np, "asscalar", patch_asscalar)
+
+# Reduction of bounding box area so that it captures the player shirts only
+def area_reduction(startX, endX, startY, endY, threshold = 0.4):
+    # Input the coordinates of a bounding boxes and output the desired box
+    # Threshold is % of the remaining area
+    # end_Y is strictly set to half od the height of the image so that the code ignores the pants
+    # The correct version of the code with Y axis
+    # new_endY = round(endY - (1-np.sqrt(z))*(endY-startY)/2) 
+
+    new_startY = round(startY + (1-np.sqrt(threshold))*(endY - startY)/2)
+    new_endY   = round((startY + endY)/2)                   
+    new_startX = round(startX + (1-np.sqrt(threshold))*(endX - startX)/2)
+    new_endX   = round(endX - (1-np.sqrt(threshold))*(endX - startX)/2)
+
+    return new_startX, new_endX, new_startY, new_endY
+
+def box_to_features(rgb_image,boxes):
+
+    # Input: rgb_images and the resulting bounding boxes from the model
+    # Output: Lists of extracted features namely 
+    crop_img_list  = []  # images for further testing
+    player_x_coord = []  # x-coord of player of each box
+    assignment     = []  # main color pigment of each box     
+    
+    #Compute the hue of grass:
+    grass_average = rgb_image[:,:,::-1].mean(axis=0).mean(axis=0)
+
+    # For each box, extract features
+    for box in boxes:
+
+        # If box class is a person then proceed
+        if box.cls[0].item() == 0:   
+            crop = box.xyxy
+            (x_1, y_1, x_2, y_2) = np.concatenate(crop.cpu().detach().int().tolist()) # Orgin coordinates
+            player_saved = rgb_image[y_1:y_2,x_1:x_2]
+            crop_img_list.append(player_saved[:,:,::-1])       # save feature 1
+            player_x_coord.append(0.5*(x_1 + x_2))             # save feature 2
+
+            # For the main color, we first reduce area of search to only shirts
+            # Further filter to remove all the grass hue from the image
+            # With all the accepted pixels, we compute the average color of the shirts
+            (new_x_1,new_x_2,new_y_1,new_y_2) = area_reduction(x_1,x_2,y_1,y_2) 
+            cropped = rgb_image[new_y_1:new_y_2,new_x_1:new_x_2]
+            test_crop = cropped[:,:,::-1].copy()
+            accepted_pixel = []
+            for row_idx in range(cropped.shape[0]):
+                for col_idx in range(cropped.shape[1]):        
+                    current_color = test_crop[row_idx][col_idx]
+                    if sum(abs(current_color - grass_average)) > 60:
+                        accepted_pixel.append(current_color)
+            final_color = np.mean(accepted_pixel,axis = 0)
+            assignment.append(final_color)                     # save feature 3
+
+    return assignment,player_x_coord,crop_img_list
+
+# Remove the audiences from the image
+def pitch_segmentation(rgb_image):
+    ## pitch seg
+    hsv_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2HSV)
+    lower_green = np.array([35, 20, 50])
+    upper_green = np.array([90, 255, 255])
+
+    mask_green = cv2.inRange(hsv_image, lower_green, upper_green)
+    result = cv2.bitwise_and(hsv_image, hsv_image, mask=mask_green)
+    temp = cv2.cvtColor(result, cv2.COLOR_HSV2RGB)
+    h, w, _ = result.shape
+    _, green, _ = cv2.split(temp)
+
+    # Find contours
+    contours, hierarchy = cv2.findContours(image=green, mode=cv2.RETR_EXTERNAL,
+                                      method=cv2.CHAIN_APPROX_NONE)
+
+    contours = max(contours, key=cv2.contourArea)
+    rect = np.int16(cv2.boundingRect(contours))
+    min_x, min_y, w, h = rect
+    max_x, max_y = [min_x + w, min_y + h]
+    cv2.rectangle(temp, (min_x, min_y), (max_x, max_y),color=(255, 0, 0), thickness=5)
+
+    # Crop the image
+    result = cv2.resize(result[min_y:max_y, min_x:max_x], (w, h))
+    rgb_image = cv2.resize(rgb_image[min_y:max_y, min_x:max_x], (w, h))
+
+    return rgb_image
+
+# Convert rgb to CLE_lab for computing the difference between 2 different colors
+def rgb_to_lab(rgb_color):
+    # Input rgb color
+    # Output CLE_lab color
+    srgb = sRGBColor(rgb_color[0],rgb_color[1],rgb_color[2])
+    lab = convert_color(srgb, LabColor)
+
+    return lab
+
+# Check if there is a mismatch color in the same team and change the labels accordingly
+def misc_in_teams(labels, assignment, teams, threshold = 50):
+    # Input: labels, their color values, and counter for the labels
+    # Output: Updated labels
+
+    # Analyze the results from KMeans to get 2 teams
+    team_1 = np.where(labels == teams[0][0])[0]
+    team_2 = np.where(labels == teams[1][0])[0]
+
+    # Compute the average color of each team with the index
+    team_1_color = np.mean([assignment[i] for i in team_1],axis =0)
+    team_2_color = np.mean([assignment[i] for i in team_2],axis =0)
+        
+    # Convert rgb to lab
+    lab_team_1_color = rgb_to_lab(team_1_color)
+    lab_team_2_color = rgb_to_lab(team_2_color)
+    lab_assignment = [rgb_to_lab(x) for x in assignment]
+
+    # All the number labels the KMeans gives
+    updated_labels = labels
+    team_1_label = teams[0][0]
+    team_2_label = teams[1][0]
+    misc_label   = teams[2][0]
+
+    # Compute the difference of colors within their own team
+    team_1_check = [delta_e_cie2000(lab_team_1_color, lab_assignment[i]) for i in team_1]
+    team_2_check = [delta_e_cie2000(lab_team_2_color, lab_assignment[i]) for i in team_2]
+
+    # Check if there is a mismatch color within 2 teams
+    convert_misc_1_idx = [i for i in range(len(team_1_check)) if team_1_check[i] > threshold] 
+    convert_misc_2_idx = [i for i in range(len(team_2_check)) if team_2_check[i] > threshold]
+
+    # If yes, then change the labels accordingly
+    if len(convert_misc_1_idx) > 0:
+            for x in convert_misc_1_idx:
+                if delta_e_cie2000(lab_team_2_color,lab_assignment[x]) < 30:
+                    updated_labels[x] = team_2_label
+                else:
+                    updated_labels[x] = misc_label
+            
+    if len(convert_misc_2_idx) > 0:
+            for y in convert_misc_2_idx:
+                if delta_e_cie2000(lab_team_1_color,lab_assignment[y]) < 30:
+                    updated_labels[y] = team_1_label
+                else:
+                    updated_labels[y] = misc_label
+    
+    return updated_labels, lab_team_1_color, lab_team_2_color
+
+# Identify the position of the misc label
+def position_text(player_x_coord,new_team_1,new_team_2,new_misc):
+    # Input: Players x coordinates and the index of the all classes
+    # Output: determine the position of the misc label (Left or Right)
+
+    misc_pos = [player_x_coord[i] for i in new_misc]
+    avg_x_team_1 = np.mean([player_x_coord[i] for i in new_team_1])
+    avg_x_team_2 = np.mean([player_x_coord[i] for i in new_team_2])
+
+    # Identify left vs right position. The metric can be changed if needed
+    if avg_x_team_1 < avg_x_team_2:
+        left_coord = avg_x_team_1
+    else:
+        left_coord = avg_x_team_2
+    
+    # Update text
+    for i in range(len(new_misc)):
+        if misc_pos[i] <= left_coord:
+            misc_pos[i] = "Left"
+        else:
+            misc_pos[i] = "Right"
+    
+    return misc_pos
+
+
+
+
 
 
 
