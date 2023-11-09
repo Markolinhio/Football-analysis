@@ -505,9 +505,9 @@ def pitch_segmentation(rgb_image):
     max_x, max_y = [min_x + w, min_y + h]
 
     # Crop the image
-    field_cropped_image = cv2.resize(green_filtered_image[min_y:max_y, min_x:max_x], (orig_w, orig_h)) # Crop and Resize to original size
+    field_cropped_image = cv2.resize(rgb_image[min_y:max_y, min_x:max_x], (orig_w, orig_h)) # Crop and Resize to original size
 
-    return field_cropped_image
+    return field_cropped_image[:,:,::-1]
 
 
 # Convert rgb to CLE_lab for computing the difference between 2 different colors
@@ -597,30 +597,30 @@ def position_text(player_center_coord,new_team_1,new_team_2,new_misc):
 
 
 def update_misc_color(team_1_idx, team_2_idx, misc_idx, global_color_dict, current_color_dict):
-    global_misc_lab_color = [rgb_to_lab_color(x) for x in global_color_dict['misc_color_global']]
+    global_misc_lab_color = [rgb_to_lab_color(x) for x in global_color_dict['misc_color']]
     team_1_diff = [delta_e_cie2000(global_color_dict['team_1_color'], x) for x in current_color_dict['current_misc_lab_colors']]
     team_2_diff = [delta_e_cie2000(global_color_dict['team_2_color'], x) for x in current_color_dict['current_misc_lab_colors']]
     current_misc_position = position_text(current_color_dict['player_center_coord_list'], team_1_idx, team_2_idx, misc_idx)
     switch = [False]*len(current_color_dict['current_misc_lab_colors'])
 
     # Check availability of the misc clr:
-    if len(global_color_dict['misc_color_global']) == 0:
+    if len(global_color_dict['misc_color']) == 0:
         for j in range(len(current_color_dict['current_misc_colors'])):
             # If the same shade of color then update the param of existing global, but if it is not then addd into the list
             if (team_1_diff[j] < 30) or (team_2_diff[j] < 30):
                 switch[j] = True
             if switch[j] == False:
-                global_color_dict['misc_box_coord_global'].append(current_color_dict['current_misc_box_coord'][j])
-                global_color_dict['misc_color_global'].append(current_color_dict['current_misc_colors'][j])
-                global_color_dict['misc_position_global'].append(current_misc_position[j])
-                global_color_dict['misc_frequency_global'].append(1)
+                global_color_dict['misc_box_coord'].append(current_color_dict['current_misc_box_coord'][j])
+                global_color_dict['misc_color'].append(current_color_dict['current_misc_colors'][j])
+                global_color_dict['misc_position'].append(current_misc_position[j])
+                global_color_dict['misc_frequency'].append(1)
     else:
         #global vs local:
         for j in range(len(current_color_dict['current_misc_lab_colors'])):
             # If the same shade of color then update the param of existing global, but if it is not then add into the list
             if (team_1_diff[j] < 30) or (team_2_diff[j] < 30):
                 switch[j] = True
-            for i in range(len(global_color_dict)):
+            for i in range(len(global_color_dict['misc_color'])):
                 misc_diff = delta_e_cie2000(global_misc_lab_color[i], 
                                             current_color_dict['current_misc_lab_colors'][j])
                 if misc_diff < 40:
@@ -632,7 +632,7 @@ def update_misc_color(team_1_idx, team_2_idx, misc_idx, global_color_dict, curre
                     
                     # Update the labels if there is a match between global vs local color
                     if global_color_dict['misc_frequency'][i] >= 3:
-                        if global_color_dict['misc_position'] == "Mid":
+                        if global_color_dict['misc_position'][i] == "Mid":
                             current_color_dict["label"][j] = "Referee"
                         else:
                             current_color_dict["label"][j] = "Keeper" # Exact team update is later
@@ -641,22 +641,19 @@ def update_misc_color(team_1_idx, team_2_idx, misc_idx, global_color_dict, curre
 
                     
 
-                
-
-
         for j in range(len(current_color_dict['current_misc_lab_colors'])):
             if switch[j] == False:
-                if len(global_color_dict['misc_color_global']) <= 4:
+                if len(global_color_dict['misc_color']) <= 4:
                     # Update global dict
                     global_color_dict['misc_box_coord'].append(current_color_dict['current_misc_box_coord'][j])
-                    global_color_dict['misc_color_global'].append(current_color_dict['current_misc_colors'][j])
+                    global_color_dict['misc_color'].append(current_color_dict['current_misc_colors'][j])
                     global_color_dict['misc_position'].append(current_misc_position[j])
                     global_color_dict['misc_frequency'].append(1)
                 else:
                     if min(global_color_dict['misc_frequency']) == 1:
                         k = global_color_dict['misc_frequency'].index(min(global_color_dict['misc_frequency']))
                         global_color_dict['misc_box_coord'][k] = current_color_dict['current_misc_box_coord'][j]
-                        global_color_dict['misc_color_global'][k] = current_color_dict['current_misc_colors'][j]
+                        global_color_dict['misc_color'][k] = current_color_dict['current_misc_colors'][j]
                         global_color_dict['misc_position'][k] = current_misc_position[j]
                         global_color_dict['misc_frequency'] = 1
 
