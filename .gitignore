@@ -163,6 +163,7 @@ data/annotated_frames/
 data/images/
 data/videos/
 data/coco_datasets
+*.zip
 data/datasets
 *.ipynbcheckpoints
 notebooks/runs

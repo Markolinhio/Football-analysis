@@ -12,6 +12,7 @@ import json
 import yaml
 import shutil
 import albumentations
+from tqdm import tqdm
 
 from sklearn.cluster import KMeans
 from collections import Counter
@@ -227,10 +228,10 @@ def merge_coco_dataset(coco_dataset_path_1, coco_dataset_path_2, dest_path=None)
             
 
 # Convert COCO dataset to YOLO dataset format        
-def coco2yolo(train_dataset_path, val_dataset_path=None, dest_path=None, split_val=True):
+def coco2yolo(train_dataset_path, val_dataset_path=None, test_dataset_path=None, dest_path=None, split_val=True):
 
     def ann2txt(coco_file, image_info_list, images_path, dest_images_path, dest_labels_path):
-        for image_info in image_info_list:
+        for image_info in tqdm(image_info_list):
             image_name = image_info['file_name']
             image_w, image_h = image_info['width'], image_info['height']
 
@@ -322,6 +323,26 @@ def coco2yolo(train_dataset_path, val_dataset_path=None, dest_path=None, split_v
     else:
         return "Validation set path required or set split_val to True to split train dataset to train and validation set"
     
+    if test_dataset_path is not None:
+        # Create corresponding destination folders if test_dataset_path is available
+
+        test_dest_path = os.path.join(dest_path, 'test')
+        test_dest_images_path = os.path.join(test_dest_path, 'images')
+        test_dest_labels_path = os.path.join(test_dest_path, 'labels')
+
+        for dest_paths in [test_dest_path, test_dest_images_path, test_dest_labels_path]:
+            if not os.path.exists(dest_paths):
+                os.mkdir(dest_paths)
+                
+        dataset_path = test_dataset_path
+        coco_path = os.path.join(dataset_path, 'annotations/instances_default.json')
+        images_path = os.path.join(dataset_path, 'images')
+        coco = json.load(open(coco_path))
+
+        image_info_list = coco['images']
+
+        ann2txt(coco, image_info_list, images_path, test_dest_images_path, test_dest_labels_path)
+
     # Write YAML metada of YOLO dataset
     yaml_path = os.path.join(dest_path, 'data.yaml')
 
@@ -336,7 +357,6 @@ def coco2yolo(train_dataset_path, val_dataset_path=None, dest_path=None, split_v
             
 
 def augment_yolo(yaml_path, dataset_path):
-    
     def salt_pepper(image):
         salt_vs_pepper = 0.5                  
         amount = 0.01
@@ -369,11 +389,8 @@ def augment_yolo(yaml_path, dataset_path):
     with open(yaml_path) as f:
         yaml_file = yaml.load(f, Loader=SafeLoader)
 
-    # Declare destination path
-    test_path = yaml_file["test"]
+    # Get file path for augmentation
     train_path = yaml_file["train"]
-    val_path = yaml_file["val"]
-    storage = [test_path,train_path,val_path]
     
     # Augmentation pipeline of three augmentation:
     # Hue saturation transform between -25% and 25%
@@ -385,37 +402,36 @@ def augment_yolo(yaml_path, dataset_path):
         Salt_pepper()])
 
     # Iterate over the images in the dataset path, augment them, and write them to the corresponding destination
-    for file_path in storage:
-        file_path = os.path.join(dataset_path, file_path)
-        if not os.path.exists(file_path):
-            continue
-        images_list = os.listdir(file_path)
+    file_path = os.path.join(dataset_path, train_path)
+    print(file_path)
 
-        generate_data = True # Biet cai generate data lam gi ko ma ghi o day? @@
-        for image_name in images_list:
-            image_path = os.path.join(file_path, image_name)
-            label_path = os.path.join(os.path.dirname(file_path)+'/labels', image_name[:-4]+'.txt')
-            image = cv2.imread(image_path, cv2.COLOR_BGR2RGB)
+    images_list = os.listdir(file_path)
 
-            # Run an image through augmentation pipeline of 2^3 times to try getting all combination of augmentation
-            for i in range(8):
-                transformed_image = transform(image=image)['image']
-                transformed_image_name = image_name[:-4] + '_transformed_' + str(i) + '.png'
-                transformed_label_name = image_name[:-4] + '_transformed_' + str(i) + '.txt'
-                if generate_data: # Biet cai generate data lam gi ko ma ghi o day? @@
-                    cv2.imwrite(os.path.join(file_path,transformed_image_name), transformed_image)
-                    shutil.copy(label_path, os.path.join(os.path.dirname(file_path)+'/labels', transformed_label_name))
+    for image_name in tqdm(images_list):
+        image_path = os.path.join(file_path, image_name)
+        label_path = os.path.join(os.path.dirname(file_path)+'/labels', image_name[:-4]+'.txt')
+        image = cv2.imread(image_path, cv2.COLOR_BGR2RGB)
 
-        print(len(os.listdir(image_path)), len(os.listdir(label_path)))
-    
+        # Run an image through augmentation pipeline of 2^3 times to try getting all combination of augmentation
+        for i in range(8):
+            transformed_image = transform(image=image)['image']
+            transformed_image_name = image_name[:-4] + '_transformed_' + str(i) + '.png'
+            transformed_label_name = image_name[:-4] + '_transformed_' + str(i) + '.txt'
+            cv2.imwrite(os.path.join(file_path,transformed_image_name), transformed_image)
+            shutil.copy(label_path, os.path.join(os.path.dirname(file_path)+'/labels', transformed_label_name))
+
+    print(len(os.listdir(os.path.join(dataset_path, train_path))), len(os.listdir(os.path.dirname(file_path)+'/labels')))
+
+
 # Replace old def "asscalar" to .item()
 def patch_asscalar(a):
     return a.item()
 
 setattr(np, "asscalar", patch_asscalar)
 
+
 # Reduction of bounding box area so that it captures the player shirts only
-def area_reduction(startX, endX, startY, endY, threshold = 0.4):
+def reduce_area(startX, endX, startY, endY, threshold = 0.4):
     # Input the coordinates of a bounding boxes and output the desired box
     # Threshold is % of the remaining area
     # end_Y is strictly set to half od the height of the image so that the code ignores the pants
@@ -429,12 +445,13 @@ def area_reduction(startX, endX, startY, endY, threshold = 0.4):
 
     return new_startX, new_endX, new_startY, new_endY
 
+
 def box_to_features(rgb_image,boxes):
 
     # Input: rgb_images and the resulting bounding boxes from the model
     # Output: Lists of extracted features namely 
-    crop_img_list  = []  # images for further testing
-    player_x_coord = []  # x-coord of player of each box
+    box_coord_list  = []  # original coordinates of each box, used for testing purposes
+    player_center_coord = []  # coordinate of the center of each box
     assignment     = []  # main color pigment of each box     
     
     #Compute the hue of grass:
@@ -447,15 +464,15 @@ def box_to_features(rgb_image,boxes):
         if box.cls[0].item() == 0:   
             crop = box.xyxy
             (x_1, y_1, x_2, y_2) = np.concatenate(crop.cpu().detach().int().tolist()) # Orgin coordinates
-            player_saved = rgb_image[y_1:y_2,x_1:x_2]
-            crop_img_list.append(player_saved[:,:,::-1])       # save feature 1
-            player_x_coord.append(0.5*(x_1 + x_2))             # save feature 2
+
+            box_coord_list.append(((x_1, y_1), (x_2, y_2)))       # save original coordinates
+            player_center_coord.append((0.5*(x_1 + x_2), 0.5*(y_1 + y_2)))             # Coordinate of the center of the box
 
             # For the main color, we first reduce area of search to only shirts
             # Further filter to remove all the grass hue from the image
             # With all the accepted pixels, we compute the average color of the shirts
-            (new_x_1,new_x_2,new_y_1,new_y_2) = area_reduction(x_1,x_2,y_1,y_2) 
-            cropped = rgb_image[new_y_1:new_y_2,new_x_1:new_x_2]
+            (new_x_1,new_x_2,new_y_1,new_y_2) = reduce_area(x_1,x_2,y_1,y_2) 
+            cropped = rgb_image[new_y_1:new_y_2, new_x_1:new_x_2]
             test_crop = cropped[:,:,::-1].copy()
             accepted_pixel = []
             for row_idx in range(cropped.shape[0]):
@@ -464,47 +481,44 @@ def box_to_features(rgb_image,boxes):
                     if sum(abs(current_color - grass_average)) > 60:
                         accepted_pixel.append(current_color)
             final_color = np.mean(accepted_pixel,axis = 0)
-            assignment.append(final_color)                     # save feature 3
+            assignment.append(final_color)                     # assignment by color
 
-    return assignment,player_x_coord,crop_img_list
+    return assignment, player_center_coord, box_coord_list
+
 
 # Remove the audiences from the image
 def pitch_segmentation(rgb_image):
-    ## pitch seg
+    ## Filter green pixels
     hsv_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2HSV)
     lower_green = np.array([35, 20, 50])
     upper_green = np.array([90, 255, 255])
 
     mask_green = cv2.inRange(hsv_image, lower_green, upper_green)
-    result = cv2.bitwise_and(hsv_image, hsv_image, mask=mask_green)
-    temp = cv2.cvtColor(result, cv2.COLOR_HSV2RGB)
-    h, w, _ = result.shape
+    green_filtered_image = cv2.bitwise_and(hsv_image, hsv_image, mask=mask_green)
+    temp = cv2.cvtColor(green_filtered_image, cv2.COLOR_HSV2RGB)
+    orig_h, orig_w, _ = rgb_image.shape
     _, green, _ = cv2.split(temp)
 
-    # Find contours
-    contours, hierarchy = cv2.findContours(image=green, mode=cv2.RETR_EXTERNAL,
-                                      method=cv2.CHAIN_APPROX_NONE)
+    _, rect, _ = detect_largest_contour(green)
 
-    contours = max(contours, key=cv2.contourArea)
-    rect = np.int16(cv2.boundingRect(contours))
     min_x, min_y, w, h = rect
     max_x, max_y = [min_x + w, min_y + h]
-    cv2.rectangle(temp, (min_x, min_y), (max_x, max_y),color=(255, 0, 0), thickness=5)
 
     # Crop the image
-    result = cv2.resize(result[min_y:max_y, min_x:max_x], (w, h))
-    rgb_image = cv2.resize(rgb_image[min_y:max_y, min_x:max_x], (w, h))
+    field_cropped_image = cv2.resize(green_filtered_image[min_y:max_y, min_x:max_x], (orig_w, orig_h)) # Crop and Resize to original size
 
-    return rgb_image
+    return field_cropped_image
+
 
 # Convert rgb to CLE_lab for computing the difference between 2 different colors
-def rgb_to_lab(rgb_color):
+def rgb_to_lab_color(rgb_color):
     # Input rgb color
     # Output CLE_lab color
     srgb = sRGBColor(rgb_color[0],rgb_color[1],rgb_color[2])
     lab = convert_color(srgb, LabColor)
 
     return lab
+
 
 # Check if there is a mismatch color in the same team and change the labels accordingly
 def misc_in_teams(labels, assignment, teams, threshold = 50):
@@ -555,10 +569,12 @@ def misc_in_teams(labels, assignment, teams, threshold = 50):
     
     return updated_labels, lab_team_1_color, lab_team_2_color
 
+
 # Identify the position of the misc label
-def position_text(player_x_coord,new_team_1,new_team_2,new_misc):
+def position_text(player_center_coord,new_team_1,new_team_2,new_misc):
     # Input: Players x coordinates and the index of the all classes
     # Output: determine the position of the misc label (Left or Right)
+    player_x_coord = np.array(player_center_coord)[:, 0]
 
     misc_pos = [player_x_coord[i] for i in new_misc]
     avg_x_team_1 = np.mean([player_x_coord[i] for i in new_team_1])
@@ -576,13 +592,59 @@ def position_text(player_x_coord,new_team_1,new_team_2,new_misc):
             misc_pos[i] = "Left"
         else:
             misc_pos[i] = "Right"
-    
+
     return misc_pos
 
 
+def update_misc_color(team_1_idx, team_2_idx, misc_idx, global_color_dict, current_color_dict):
+    global_misc_lab_color = [rgb_to_lab_color(x) for x in global_color_dict['misc_color_global']]
+    team_1_diff = [delta_e_cie2000(global_color_dict['team_1_color'], x) for x in current_color_dict['current_misc_lab_colors']]
+    team_2_diff = [delta_e_cie2000(global_color_dict['team_2_color'], x) for x in current_color_dict['current_misc_lab_colors']]
+    current_misc_position = position_text(current_color_dict['player_center_coord_list'], team_1_idx, team_2_idx, misc_idx)
+    switch = [False]*len(current_color_dict['current_misc_lab_colors'])
 
+    # Check availability of the misc clr:
+    if len(global_color_dict['misc_color_global']) == 0:
+        for j in range(len(current_color_dict['current_misc_colors'])):
+            # If the same shade of color then update the param of existing global, but if it is not then addd into the list
+            if (team_1_diff[j] < 30) or (team_2_diff[j] < 30):
+                switch[j] = True
+            if switch[j] == False:
+                global_color_dict['misc_box_coord_global'].append(current_color_dict['current_misc_box_coord'][j])
+                global_color_dict['misc_color_global'].append(current_color_dict['current_misc_colors'][j])
+                global_color_dict['misc_position_global'].append(current_misc_position[j])
+                global_color_dict['misc_frequency_global'].append(1)
+    else:
+        #global vs local:
+        for j in range(len(current_color_dict['current_misc_lab_colors'])):
+            # If the same shade of color then update the param of existing global, but if it is not then add into the list
+            if (team_1_diff[j] < 30) or (team_2_diff[j] < 30):
+                switch[j] = True
+            for i in range(len(global_color_dict)):
+                misc_diff = delta_e_cie2000(global_misc_lab_color[i], 
+                                            current_color_dict['current_misc_lab_colors'][j])
+                if misc_diff < 40:
+                    if current_misc_position[j] == global_color_dict['misc_position'][i]:
+                        global_color_dict['misc_frequency'][i] += 1
+                    else:
+                        global_color_dict['misc_frequency'][i] += 1
+                        global_color_dict['misc_position'][i] = "Mid"
+                    switch[j] = True
 
+        for j in range(len(current_color_dict['current_misc_lab_colors'])):
+            if switch[j] == False:
+                if len(global_color_dict['misc_color_global']) <= 4:
+                    # Update global dict
+                    global_color_dict['misc_box_coord'].append(current_color_dict['current_misc_box_coord'][j])
+                    global_color_dict['misc_color_global'].append(current_color_dict['current_misc_colors'][j])
+                    global_color_dict['misc_position'].append(current_misc_position[j])
+                    global_color_dict['misc_frequency'].append(1)
+                else:
+                    if min(global_color_dict['misc_frequency']) == 1:
+                        k = global_color_dict['misc_frequency'].index(min(global_color_dict['misc_frequency']))
+                        global_color_dict['misc_box_coord'][k] = current_color_dict['current_misc_box_coord'][j]
+                        global_color_dict['misc_color_global'][k] = current_color_dict['current_misc_colors'][j]
+                        global_color_dict['misc_position'][k] = current_misc_position[j]
+                        global_color_dict['misc_frequency'] = 1
 
-
-
-    
+    return global_color_dict
