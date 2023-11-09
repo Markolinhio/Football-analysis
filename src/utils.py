@@ -534,9 +534,9 @@ def misc_in_teams(labels, assignment, teams, threshold = 50):
     team_2_color = np.mean([assignment[i] for i in team_2],axis =0)
         
     # Convert rgb to lab
-    lab_team_1_color = rgb_to_lab(team_1_color)
-    lab_team_2_color = rgb_to_lab(team_2_color)
-    lab_assignment = [rgb_to_lab(x) for x in assignment]
+    lab_team_1_color = rgb_to_lab_color(team_1_color)
+    lab_team_2_color = rgb_to_lab_color(team_2_color)
+    lab_assignment = [rgb_to_lab_color(x) for x in assignment]
 
     # All the number labels the KMeans gives
     updated_labels = labels
@@ -629,7 +629,20 @@ def update_misc_color(team_1_idx, team_2_idx, misc_idx, global_color_dict, curre
                     else:
                         global_color_dict['misc_frequency'][i] += 1
                         global_color_dict['misc_position'][i] = "Mid"
+                    
+                    # Update the labels if there is a match between global vs local color
+                    if global_color_dict['misc_frequency'][i] >= 3:
+                        if global_color_dict['misc_position'] == "Mid":
+                            current_color_dict["label"][j] = "Referee"
+                        else:
+                            current_color_dict["label"][j] = "Keeper" # Exact team update is later
+
                     switch[j] = True
+
+                    
+
+                
+
 
         for j in range(len(current_color_dict['current_misc_lab_colors'])):
             if switch[j] == False:
