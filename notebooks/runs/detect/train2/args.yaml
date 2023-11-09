@@ -1,11 +1,11 @@
 task: detect
 mode: train
 model: /media/khoa-ys/Personal/Projects/Football Analysis/Football-analysis/models/yolov8n.pt
-data: /media/khoa-ys/Personal/Projects/Football Analysis/Football-analysis/data/coco_datasets/merge_train_fixed_yolov8/data.yaml
-epochs: 1000
+data: /media/khoa-ys/Personal/Projects/Football Analysis/Football-analysis/data/coco_datasets/merge_train_fixed_v2_yolov8/data.yaml
+epochs: 4500
 patience: 50
-batch: 32
-imgsz: 640
+batch: 16
+imgsz: 736
 save: true
 save_period: -1
 cache: false
