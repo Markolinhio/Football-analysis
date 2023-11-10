@@ -532,6 +532,11 @@ def misc_in_teams(labels, assignment, teams, threshold = 50):
     # Compute the average color of each team with the index
     team_1_color = np.mean([assignment[i] for i in team_1],axis =0)
     team_2_color = np.mean([assignment[i] for i in team_2],axis =0)
+
+    #print("Team 1 color is")
+    #print(team_1_color)
+    #print("Team 2 color is")
+    #print(team_2_color)
         
     # Convert rgb to lab
     lab_team_1_color = rgb_to_lab_color(team_1_color)
@@ -547,25 +552,25 @@ def misc_in_teams(labels, assignment, teams, threshold = 50):
     # Compute the difference of colors within their own team
     team_1_check = [delta_e_cie2000(lab_team_1_color, lab_assignment[i]) for i in team_1]
     team_2_check = [delta_e_cie2000(lab_team_2_color, lab_assignment[i]) for i in team_2]
-
+    
     # Check if there is a mismatch color within 2 teams
     convert_misc_1_idx = [i for i in range(len(team_1_check)) if team_1_check[i] > threshold] 
     convert_misc_2_idx = [i for i in range(len(team_2_check)) if team_2_check[i] > threshold]
-
+    
     # If yes, then change the labels accordingly
     if len(convert_misc_1_idx) > 0:
             for x in convert_misc_1_idx:
                 if delta_e_cie2000(lab_team_2_color,lab_assignment[x]) < 30:
-                    updated_labels[x] = team_2_label
+                    updated_labels[team_1[x]] = team_2_label
                 else:
-                    updated_labels[x] = misc_label
+                    updated_labels[team_1[x]] = misc_label
             
     if len(convert_misc_2_idx) > 0:
             for y in convert_misc_2_idx:
                 if delta_e_cie2000(lab_team_1_color,lab_assignment[y]) < 30:
-                    updated_labels[y] = team_1_label
+                    updated_labels[team_2[y]] = team_1_label
                 else:
-                    updated_labels[y] = misc_label
+                    updated_labels[team_2[y]] = misc_label
     
     return updated_labels, lab_team_1_color, lab_team_2_color
 
@@ -607,37 +612,47 @@ def update_misc_color(team_1_idx, team_2_idx, misc_idx, global_color_dict, curre
     if len(global_color_dict['misc_color']) == 0:
         for j in range(len(current_color_dict['current_misc_colors'])):
             # If the same shade of color then update the param of existing global, but if it is not then addd into the list
-            if (team_1_diff[j] < 30) or (team_2_diff[j] < 30):
+            if (team_1_diff[j] < 40):
+                current_color_dict["label"][j] = "Team 1"
                 switch[j] = True
-            if switch[j] == False:
-                global_color_dict['misc_box_coord'].append(current_color_dict['current_misc_box_coord'][j])
-                global_color_dict['misc_color'].append(current_color_dict['current_misc_colors'][j])
-                global_color_dict['misc_position'].append(current_misc_position[j])
-                global_color_dict['misc_frequency'].append(1)
+            elif (team_2_diff[j] < 40):
+                current_color_dict["label"][j] = "Team 2"
+                switch[j] = True
+            else:
+                if switch[j] == False:
+                    global_color_dict['misc_box_coord'].append(current_color_dict['current_misc_box_coord'][j])
+                    global_color_dict['misc_color'].append(current_color_dict['current_misc_colors'][j])
+                    global_color_dict['misc_position'].append(current_misc_position[j])
+                    global_color_dict['misc_frequency'].append(1)
     else:
         #global vs local:
         for j in range(len(current_color_dict['current_misc_lab_colors'])):
             # If the same shade of color then update the param of existing global, but if it is not then add into the list
-            if (team_1_diff[j] < 30) or (team_2_diff[j] < 30):
+            if (team_1_diff[j] < 40):
+                current_color_dict["label"][j] = "Team 1"
                 switch[j] = True
-            for i in range(len(global_color_dict['misc_color'])):
-                misc_diff = delta_e_cie2000(global_misc_lab_color[i], 
-                                            current_color_dict['current_misc_lab_colors'][j])
-                if misc_diff < 40:
-                    if current_misc_position[j] == global_color_dict['misc_position'][i]:
-                        global_color_dict['misc_frequency'][i] += 1
-                    else:
-                        global_color_dict['misc_frequency'][i] += 1
-                        global_color_dict['misc_position'][i] = "Mid"
-                    
-                    # Update the labels if there is a match between global vs local color
-                    if global_color_dict['misc_frequency'][i] >= 3:
-                        if global_color_dict['misc_position'][i] == "Mid":
-                            current_color_dict["label"][j] = "Referee"
+            elif (team_2_diff[j] < 40):
+                current_color_dict["label"][j] = "Team 2"
+                switch[j] = True
+            else:
+                for i in range(len(global_color_dict['misc_color'])):
+                    misc_diff = delta_e_cie2000(global_misc_lab_color[i], 
+                                                current_color_dict['current_misc_lab_colors'][j])
+                    if misc_diff < 40:
+                        if current_misc_position[j] == global_color_dict['misc_position'][i]:
+                            global_color_dict['misc_frequency'][i] += 1
                         else:
-                            current_color_dict["label"][j] = "Keeper" # Exact team update is later
+                            global_color_dict['misc_frequency'][i] += 1
+                            global_color_dict['misc_position'][i] = "Mid"
+                        
+                        # Update the labels if there is a match between global vs local color
+                        if global_color_dict['misc_frequency'][i] >= 3:
+                            if global_color_dict['misc_position'][i] == "Mid":
+                                current_color_dict["label"][j] = "Referee"
+                            else:
+                                current_color_dict["label"][j] = "Keeper" # Exact team update is later
 
-                    switch[j] = True
+                        switch[j] = True
 
                     
 
@@ -658,3 +673,33 @@ def update_misc_color(team_1_idx, team_2_idx, misc_idx, global_color_dict, curre
                         global_color_dict['misc_frequency'] = 1
 
     return global_color_dict
+
+def convert_lab_to_rgb(lab_color):
+        rgb = convert_color(lab_color, sRGBColor)
+        return (rgb.rgb_r,rgb.rgb_g,rgb.rgb_b)
+
+def visualize_with_labels(rgb_image, team_1_idx, team_2_idx, misc_idx, labels, global_color_dict, current_misc_dict, box_coord_list):
+    final_image = rgb_image.copy()
+    (r_1,g_1,b_1) = convert_lab_to_rgb(global_color_dict["team_1_color"])
+    (r_2,g_2,b_2) = convert_lab_to_rgb(global_color_dict["team_2_color"])
+
+    for i in team_1_idx:
+        (x_1, y_1), (x_2, y_2) = box_coord_list[i]
+        final_image = cv2.rectangle(final_image, (x_1, y_1), (x_2, y_2), (b_1,g_1,r_1))  # Fix color later
+        final_image = cv2.putText(img = final_image, text= labels[i], org=(x_1, y_1), color = (b_1,g_1,r_1),fontFace = cv2.FONT_HERSHEY_DUPLEX, fontScale = 1.0,thickness = 1)
+    
+    for i in team_2_idx:
+        (x_1, y_1), (x_2, y_2) = box_coord_list[i]
+        final_image = cv2.rectangle(final_image, (x_1, y_1), (x_2, y_2), (b_2,g_2,r_2))  # Fix color later
+        final_image = cv2.putText(img = final_image, text= labels[i], org=(x_1, y_1), color = (b_2,g_2,r_2),fontFace = cv2.FONT_HERSHEY_DUPLEX, fontScale = 1.0,thickness = 1)
+
+    for i in range(len(misc_idx)):
+        (x_1, y_1), (x_2, y_2) = current_misc_dict["current_misc_box_coord"][i]
+        (r_3, g_3, b_3) = convert_lab_to_rgb(current_misc_dict["current_misc_lab_colors"][i])
+        final_image = cv2.rectangle(final_image, (x_1, y_1), (x_2, y_2), (b_3,g_3,r_3))  # Fix color later
+        final_image = cv2.putText(img = final_image, text=current_misc_dict["label"][i], org=(x_1, y_1), color = (b_3,g_3,r_3),fontFace = cv2.FONT_HERSHEY_DUPLEX, fontScale = 1.0,thickness = 1)
+
+    plt.figure()
+    plt.imshow(final_image)
+
+    
