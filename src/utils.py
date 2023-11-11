@@ -446,28 +446,36 @@ def reduce_area(startX, endX, startY, endY, threshold = 0.4):
     return new_startX, new_endX, new_startY, new_endY
 
 
-def box_to_features(rgb_image,boxes):
+def box_to_features(rgb_image,boxes, frame_number):
 
     # Input: rgb_images and the resulting bounding boxes from the model
     # Output: Lists of extracted features namely 
     box_coord_list  = []  # original coordinates of each box, used for testing purposes
     player_center_coord = []  # coordinate of the center of each box
     assignment     = []  # main color pigment of each box     
-    
+    bbox_annotation = []
+
     #Compute the hue of grass:
     grass_average = rgb_image[:,:,::-1].mean(axis=0).mean(axis=0)
-
+    obj_number = 0
     # For each box, extract features
     for box in boxes:
+        crop = box.xyxy
+        (x_1, y_1, x_2, y_2) = np.concatenate(crop.cpu().detach().int().tolist()) # Orgin coordinates
 
+        box_coord_list.append(((x_1, y_1), (x_2, y_2)))       # save original coordinates
+        player_center_coord.append((0.5*(x_1 + x_2), 0.5*(y_1 + y_2)))             # Coordinate of the center of the box
+        class_id = box.cls[0].item()
+        bbox = {"id" : obj_number,
+                "image_id" : frame_number,
+                "category_id" : 1 if class_id == 0.0 else 0,
+                "segmentation" : [],
+                "bbox" : [x_1, y_1, x_2-x_1, y_2-y_1],
+                "area" : (x_2-x_1) * (y_2-y_1),
+                "iscrowd" : 0}
+        bbox_annotation.append(bbox)
         # If box class is a person then proceed
         if box.cls[0].item() == 0:   
-            crop = box.xyxy
-            (x_1, y_1, x_2, y_2) = np.concatenate(crop.cpu().detach().int().tolist()) # Orgin coordinates
-
-            box_coord_list.append(((x_1, y_1), (x_2, y_2)))       # save original coordinates
-            player_center_coord.append((0.5*(x_1 + x_2), 0.5*(y_1 + y_2)))             # Coordinate of the center of the box
-
             # For the main color, we first reduce area of search to only shirts
             # Further filter to remove all the grass hue from the image
             # With all the accepted pixels, we compute the average color of the shirts
@@ -482,8 +490,10 @@ def box_to_features(rgb_image,boxes):
                         accepted_pixel.append(current_color)
             final_color = np.mean(accepted_pixel,axis = 0)
             assignment.append(final_color)                     # assignment by color
+        
+        obj_number += 1 
 
-    return assignment, player_center_coord, box_coord_list
+    return assignment, player_center_coord, box_coord_list, bbox_annotation
 
 
 # Remove the audiences from the image
@@ -588,8 +598,12 @@ def position_text(player_center_coord,new_team_1,new_team_2,new_misc):
     # Identify left vs right position. The metric can be changed if needed
     if avg_x_team_1 < avg_x_team_2:
         left_coord = avg_x_team_1
+        left_team  = "_Team_1"
+        right_team = "_Team_2"
     else:
         left_coord = avg_x_team_2
+        left_team  = "_Team_2"
+        right_team = "_Team_1"
     
     # Update text
     for i in range(len(new_misc)):
@@ -598,14 +612,14 @@ def position_text(player_center_coord,new_team_1,new_team_2,new_misc):
         else:
             misc_pos[i] = "Right"
 
-    return misc_pos
+    return misc_pos, left_team, right_team
 
 
-def update_misc_color(team_1_idx, team_2_idx, misc_idx, global_color_dict, current_color_dict):
+def update_misc_color(team_1_idx, team_2_idx, misc_idx, global_color_dict, current_color_dict, labels):
     global_misc_lab_color = [rgb_to_lab_color(x) for x in global_color_dict['misc_color']]
     team_1_diff = [delta_e_cie2000(global_color_dict['team_1_color'], x) for x in current_color_dict['current_misc_lab_colors']]
     team_2_diff = [delta_e_cie2000(global_color_dict['team_2_color'], x) for x in current_color_dict['current_misc_lab_colors']]
-    current_misc_position = position_text(current_color_dict['player_center_coord_list'], team_1_idx, team_2_idx, misc_idx)
+    current_misc_position, left_team, right_team = position_text(current_color_dict['player_center_coord_list'], team_1_idx, team_2_idx, misc_idx)
     switch = [False]*len(current_color_dict['current_misc_lab_colors'])
 
     # Check availability of the misc clr:
@@ -614,9 +628,11 @@ def update_misc_color(team_1_idx, team_2_idx, misc_idx, global_color_dict, curre
             # If the same shade of color then update the param of existing global, but if it is not then addd into the list
             if (team_1_diff[j] < 40):
                 current_color_dict["label"][j] = "Team 1"
+                labels[misc_idx[j]] = "Team_1"
                 switch[j] = True
             elif (team_2_diff[j] < 40):
                 current_color_dict["label"][j] = "Team 2"
+                labels[misc_idx[j]] = "Team_2"
                 switch[j] = True
             else:
                 if switch[j] == False:
@@ -630,9 +646,11 @@ def update_misc_color(team_1_idx, team_2_idx, misc_idx, global_color_dict, curre
             # If the same shade of color then update the param of existing global, but if it is not then add into the list
             if (team_1_diff[j] < 40):
                 current_color_dict["label"][j] = "Team 1"
+                labels[misc_idx[j]] = "Team_1"
                 switch[j] = True
             elif (team_2_diff[j] < 40):
                 current_color_dict["label"][j] = "Team 2"
+                labels[misc_idx[j]] = "Team_2"
                 switch[j] = True
             else:
                 for i in range(len(global_color_dict['misc_color'])):
@@ -649,9 +667,13 @@ def update_misc_color(team_1_idx, team_2_idx, misc_idx, global_color_dict, curre
                         if global_color_dict['misc_frequency'][i] >= 3:
                             if global_color_dict['misc_position'][i] == "Mid":
                                 current_color_dict["label"][j] = "Referee"
-                            else:
+                                labels[misc_idx[j]] = "Referee"
+                            elif global_color_dict['misc_position'][i] == "Left":
                                 current_color_dict["label"][j] = "Keeper" # Exact team update is later
-
+                                labels[misc_idx[j]] = "Keeper" + left_team
+                            elif global_color_dict['misc_position'][i] == "Right":
+                                current_color_dict["label"][j] = "Keeper" # Exact team update is later
+                                labels[misc_idx[j]] = "Keeper" + right_team
                         switch[j] = True
 
                     
@@ -701,5 +723,26 @@ def visualize_with_labels(rgb_image, team_1_idx, team_2_idx, misc_idx, labels, g
 
     plt.figure()
     plt.imshow(final_image)
+
+
+def update_bbox_label(bbox_annotation,labels):
+    updated_bbox_annotation = bbox_annotation.copy()
+    i = 0
+    for box in updated_bbox_annotation:
+        if box["category_id"] != 0:
+            if labels[i] == "Team 1":
+                box["category_id"] = 1
+            elif labels[i] == "Team 2":
+                box["category_id"] = 2
+            elif labels[i] == "Referee":
+                box["category_id"] = 5
+            elif labels[i] == "Keeper_Team_1":
+                box["category_id"] = 3
+            elif labels[i] == "Keeper_Team_2":
+                box["category_id"] = 4
+            elif labels[i] == "Misc":
+                box["category_id"] = 6
+            i += 1
+    return updated_bbox_annotation
 
     
