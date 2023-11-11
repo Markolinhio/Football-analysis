@@ -542,11 +542,6 @@ def misc_in_teams(labels, assignment, teams, threshold = 50):
     # Compute the average color of each team with the index
     team_1_color = np.mean([assignment[i] for i in team_1],axis =0)
     team_2_color = np.mean([assignment[i] for i in team_2],axis =0)
-
-    #print("Team 1 color is")
-    #print(team_1_color)
-    #print("Team 2 color is")
-    #print(team_2_color)
         
     # Convert rgb to lab
     lab_team_1_color = rgb_to_lab_color(team_1_color)
