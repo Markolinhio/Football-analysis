@@ -466,9 +466,9 @@ def box_to_features(rgb_image,boxes, frame_number):
         box_coord_list.append(((x_1, y_1), (x_2, y_2)))       # save original coordinates
         player_center_coord.append((0.5*(x_1 + x_2), 0.5*(y_1 + y_2)))             # Coordinate of the center of the box
         class_id = box.cls[0].item()
-        bbox = {"id" : obj_number,
-                "image_id" : frame_number,
-                "category_id" : 1 if class_id == 0.0 else 0,
+        bbox = {"id" : int(obj_number),
+                "image_id" : int(frame_number),
+                "category_id" : int(7) if class_id == 0.0 else int(0),
                 "segmentation" : [],
                 "bbox" : [x_1, y_1, x_2-x_1, y_2-y_1],
                 "area" : (x_2-x_1) * (y_2-y_1),
@@ -726,17 +726,17 @@ def update_bbox_label(bbox_annotation,labels):
     for box in updated_bbox_annotation:
         if box["category_id"] != 0:
             if labels[i] == "Team 1":
-                box["category_id"] = 1
+                box["category_id"] = int(1)
             elif labels[i] == "Team 2":
-                box["category_id"] = 2
+                box["category_id"] = int(2)
             elif labels[i] == "Referee":
-                box["category_id"] = 5
+                box["category_id"] = int(5)
             elif labels[i] == "Keeper_Team_1":
-                box["category_id"] = 3
+                box["category_id"] = int(3)
             elif labels[i] == "Keeper_Team_2":
-                box["category_id"] = 4
+                box["category_id"] = int(4)
             elif labels[i] == "Misc":
-                box["category_id"] = 6
+                box["category_id"] = int(6)
             i += 1
     return updated_bbox_annotation
 
