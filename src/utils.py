@@ -69,6 +69,9 @@ def export_coco_dataset_from_prediction(data_path, folder_name, model_name="yolo
 
     images_path = os.path.join(data_path, 'images' + '/' + folder_name)
 
+    if not os.path.exists(os.path.join(data_path, 'coco_datasets')):
+        os.mkdir(os.path.join(data_path, 'coco_datasets'))
+
     dest_path = os.path.join(data_path, 'coco_datasets' + '/' + folder_name)
     if not os.path.exists(dest_path):
         os.mkdir(dest_path)
