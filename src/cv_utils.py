@@ -497,19 +497,19 @@ def box_to_features(rgb_image,boxes, frame_number):
 
 
 # Remove the audiences from the image
-def pitch_segmentation(rgb_image):
+def pitch_segment(rgb_image, visualize=False):
+    orig_h, orig_w, _ = rgb_image.shape
+
     ## Filter green pixels
     hsv_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2HSV)
-    lower_green = np.array([35, 20, 50])
-    upper_green = np.array([90, 255, 255])
+    hue = hsv_image[:, :, 0]
+    lower_green = 35
+    upper_green = 100
 
-    mask_green = cv2.inRange(hsv_image, lower_green, upper_green)
+    mask_green = cv2.inRange(hue, lower_green, upper_green)
     green_filtered_image = cv2.bitwise_and(hsv_image, hsv_image, mask=mask_green)
-    temp = cv2.cvtColor(green_filtered_image, cv2.COLOR_HSV2RGB)
-    orig_h, orig_w, _ = rgb_image.shape
-    _, green, _ = cv2.split(temp)
 
-    _, rect, _ = detect_largest_contour(green)
+    _, rect, _ = detect_largest_contour(mask_green)
 
     min_x, min_y, w, h = rect
     max_x, max_y = [min_x + w, min_y + h]
@@ -517,7 +517,15 @@ def pitch_segmentation(rgb_image):
     # Crop the image
     field_cropped_image = cv2.resize(rgb_image[min_y:max_y, min_x:max_x], (orig_w, orig_h)) # Crop and Resize to original size
 
-    return field_cropped_image[:,:,::-1]
+    if visualize:
+        plt.figure()
+        plt.imshow(mask_green)
+        temp = rgb_image.copy()
+        cv2.rectangle(temp, (min_x, min_y), (max_x, max_y), (255, 0, 0), 3)
+        plt.figure()
+        plt.imshow(temp)
+
+    return field_cropped_image
 
 
 # Convert rgb to CLE_lab for computing the difference between 2 different colors
@@ -802,7 +810,7 @@ def write_coco_with_player_differentiation(vid_name, model_name, data_path, mode
         # Crop out the audiences via pitch segmentation
         image_ad  = os.path.join(images_path, image_name)
         rgb_image = cv2.imread(image_ad, cv2.COLOR_BGR2RGB)
-        rgb_image = pitch_segmentation(rgb_image)
+        rgb_image = pitch_segment(rgb_image)
         (h, w, _) = rgb_image.shape
 
 
