@@ -496,6 +496,28 @@ def box_to_features(rgb_image,boxes, frame_number):
     return assignment, player_center_coord, box_coord_list, bbox_annotation
 
 
+# Find peak range for pitch segmentation
+def find_peak_range(rgb_image):
+    hsv_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2HSV)
+    hue = hsv_image[:, :, 0]
+    hist = np.histogram(hue, bins=range(257), range=(0, 255), density=True)
+    values = hist[0]
+    indices = hist[1]
+    
+    # Finding the index of the highest peak
+    peak_index = np.argmax(values)
+
+    # Calculate the derivative of the histogram
+    derivative = np.diff(values)
+
+    # Find where the derivative starts to increase excessively before the peak
+    start_index = np.argmax(derivative[peak_index - 30:peak_index])
+
+    # Find where the derivative stops decreasing after the peak
+    stop_index = peak_index + np.argmax(derivative[peak_index:peak_index + 30])
+    return int(start_index), int(stop_index)
+
+
 # Remove the audiences from the image
 def pitch_segment(rgb_image, visualize=False):
     orig_h, orig_w, _ = rgb_image.shape
@@ -503,8 +525,9 @@ def pitch_segment(rgb_image, visualize=False):
     ## Filter green pixels
     hsv_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2HSV)
     hue = hsv_image[:, :, 0]
-    lower_green = 35
-    upper_green = 100
+    start_index, stop_index = find_peak_range(rgb_image)
+    lower_green = start_index
+    upper_green = stop_index
 
     mask_green = cv2.inRange(hue, lower_green, upper_green)
     green_filtered_image = cv2.bitwise_and(hsv_image, hsv_image, mask=mask_green)
