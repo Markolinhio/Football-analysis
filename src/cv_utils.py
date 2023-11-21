@@ -496,30 +496,46 @@ def box_to_features(rgb_image,boxes, frame_number):
     return assignment, player_center_coord, box_coord_list, bbox_annotation
 
 
-# Find peak range for pitch segmentation
-def find_peak_range(rgb_image):
-    hsv_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2HSV)
-    hue = hsv_image[:, :, 0]
-    hist = np.histogram(hue, bins=range(257), range=(0, 255), density=True)
-    values = hist[0]
-    indices = hist[1]
-    
-    # Finding the index of the highest peak
-    peak_index = np.argmax(values)
-
-    # Calculate the derivative of the histogram
-    derivative = np.diff(values)
-
-    # Find where the derivative starts to increase excessively before the peak
-    start_index = np.argmax(derivative[peak_index - 30:peak_index])
-
-    # Find where the derivative stops decreasing after the peak
-    stop_index = peak_index + np.argmax(derivative[peak_index:peak_index + 30])
-    return int(start_index), int(stop_index)
-
-
 # Remove the audiences from the image
 def pitch_segment(rgb_image, visualize=False):
+    # Find peak range of pixel value histogram for pitch segmentation
+    def find_peak_range(rgb_image):
+        hsv_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2HSV)
+        hue = hsv_image[:, :, 0]
+        hist = np.histogram(hue, bins=range(257), range=(0, 255), density=True)
+        values = hist[0]
+        indices = hist[1]
+        
+        # Finding the index of the highest peak
+        peak_index = np.argmax(values)
+
+        # Calculate the derivative of the histogram
+        derivative = np.diff(values)
+
+        # Finding the index of the highest peak
+        peak_index = np.argmax(values)
+
+        # Calculate the derivative of the histogram
+        derivative = np.diff(values)
+
+        # Find the regions with fluctuations above the threshold
+        fluctuation_regions = np.where(np.abs(derivative) > 0.001)[0]
+        print(fluctuation_regions)
+
+        if len(fluctuation_regions) > 0:
+            valid_range = np.arange(peak_index - 50, peak_index + 50)
+            valid_indices = [i for i in range(len(fluctuation_regions)) if fluctuation_regions[i] in valid_range]
+            # Find where the derivative starts to increase excessively before the peak
+            start_index = int(fluctuation_regions[np.argmin(valid_indices)])
+
+            # Find where the derivative stops decreasing after the peak
+            stop_index = int(fluctuation_regions[np.argmax(valid_indices)])
+            return int(start_index), int(stop_index)
+        
+        else:
+            return None
+    
+    # Keep the original image shape for resizing after croppping
     orig_h, orig_w, _ = rgb_image.shape
 
     ## Filter green pixels
@@ -530,9 +546,8 @@ def pitch_segment(rgb_image, visualize=False):
     upper_green = stop_index
 
     mask_green = cv2.inRange(hue, lower_green, upper_green)
-    green_filtered_image = cv2.bitwise_and(hsv_image, hsv_image, mask=mask_green)
 
-    _, rect, _ = detect_largest_contour(mask_green)
+    _, rect, hull = detect_largest_contour(mask_green)
 
     min_x, min_y, w, h = rect
     max_x, max_y = [min_x + w, min_y + h]
@@ -543,10 +558,28 @@ def pitch_segment(rgb_image, visualize=False):
     if visualize:
         plt.figure()
         plt.imshow(mask_green)
+
+        hsv_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2HSV)
+        hue = hsv_image[:, :, 0]
+        hist = np.histogram(hue, bins=range(257), range=(0, 255), density=True)
+        values = hist[0]
+        indices = hist[1]
+        derivative = np.diff(hist[0])
+        peak_index = np.argmax(values)
+
+        plt.figure(figsize=(20,10))
+        plt.plot(indices[:-1], values, lw=4, color='r', label='pixel value density')
+        plt.plot(indices, np.append(derivative, [0, 0]), lw=4, color='b', label='derivative of density')
+        plt.axvline(x = peak_index, color='r', linestyle='dashed')
+        plt.axvline(x = stop_index, color='b', linestyle='dashed')
+        plt.axvline(x = start_index, color='b', linestyle='dashed')
+        plt.legend(fontsize=18)
+        plt.title('hue value density histogram', fontsize=20)
+
         temp = rgb_image.copy()
-        cv2.rectangle(temp, (min_x, min_y), (max_x, max_y), (255, 0, 0), 3)
+        cv2.polylines(temp, [hull], True, (0, 0, 255), 6)
         plt.figure()
-        plt.imshow(temp)
+        plt.imshow(temp[:, :, ::-1])
 
     return field_cropped_image
 
