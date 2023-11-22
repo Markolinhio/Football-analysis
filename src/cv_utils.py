@@ -523,7 +523,7 @@ def pitch_segment(rgb_image, visualize=False):
         print(fluctuation_regions)
 
         if len(fluctuation_regions) > 0:
-            valid_range = np.arange(peak_index - 50, peak_index + 50)
+            valid_range = np.arange(peak_index - 40, peak_index + 40)
             valid_indices = [i for i in range(len(fluctuation_regions)) if fluctuation_regions[i] in valid_range]
             # Find where the derivative starts to increase excessively before the peak
             start_index = int(fluctuation_regions[np.argmin(valid_indices)])
