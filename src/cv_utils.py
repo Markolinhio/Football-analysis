@@ -519,7 +519,7 @@ def pitch_segment(rgb_image, visualize=False):
         derivative = np.diff(values)
 
         # Find the regions with fluctuations above the threshold
-        fluctuation_regions = np.where(np.abs(derivative) > 0.001)[0]
+        fluctuation_regions = np.where(np.abs(derivative) > 0.0012)[0]
         print(fluctuation_regions)
 
         if len(fluctuation_regions) > 0:

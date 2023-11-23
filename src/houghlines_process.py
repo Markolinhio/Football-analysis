@@ -155,7 +155,7 @@ def intersection_cartesian(line1, line2):
     l2 = np.cross(h[2], h[3])           # get second line
     x, y, z = np.cross(l1, l2)          # point of intersection
     if z == 0:                          # lines are parallel
-        return (float('inf'), float('inf'))
+        return None
     x_coord = np.floor(x/z)
     y_coord = np.floor(y/z)
     return np.array([[int(x_coord), int(y_coord)]])
