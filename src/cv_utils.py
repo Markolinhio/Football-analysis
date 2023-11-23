@@ -60,10 +60,119 @@ def detect_largest_contour(image, threshold=False):
 
 
 
+# Remove the audiences from the image
+def pitch_segment(rgb_image, visualize=False):
+    # Find peak range of pixel value histogram for pitch segmentation
+    def find_peak_range(hsv_image):
+        hue = hsv_image[:, :, 0]
+        hist = np.histogram(hue, bins=range(257), range=(0, 255), density=True)
+        values = hist[0]
+        indices = hist[1]
+        
+        # Finding the index of the highest peak
+        peak_index = np.argmax(values)
+
+        # Calculate the derivative of the histogram
+        derivative = np.diff(values)
+
+        # Finding the index of the highest peak
+        peak_index = np.argmax(values)
+
+        # Calculate the derivative of the histogram
+        derivative = np.append(np.diff(values), [0])
+
+        # Find the regions with fluctuations above the threshold
+        condition1 = np.abs(derivative) > 0.0015
+        condition2 = values < 0.02
+        fluctuation_regions = np.where(condition1 & condition2)[0]
+        # print(fluctuation_regions)
+
+        start_index = indices[max(0, peak_index - 40):peak_index][np.argmin(derivative[max(0, peak_index - 40):peak_index])]
+        stop_index = indices[peak_index + np.argmax(derivative[peak_index: min(peak_index + 40, 255)])]
+
+        if len(fluctuation_regions) > 0:
+            valid_range = np.arange(max(0, peak_index - 40), min(peak_index + 40, 255))
+            valid_indices = [fluctuation_regions[i] for i in range(len(fluctuation_regions)) if fluctuation_regions[i] in valid_range]
+
+            if len(np.where(valid_indices > peak_index)[0]) > 0: 
+                potential_stop_indices = np.array(valid_indices)[np.where(valid_indices > peak_index)[0]]
+                # print(potential_stop_indices)
+                filtered_stop_indices = []
+                for potential_stop_index in potential_stop_indices:
+                    # print(values[potential_stop_index - 4:potential_stop_index])
+                    if len(np.where(values[potential_stop_index - 4:potential_stop_index] >= 0.03)[0]) > 0: 
+                        filtered_stop_indices.append(potential_stop_index)
+                # Find where the derivative stops decreasing after the peak
+                if len(filtered_stop_indices) > 0:
+                    stop_index = int(np.max(filtered_stop_indices))
+                    # print("New stop index:", stop_index)
+            
+            if len(np.where(valid_indices < peak_index)[0]) > 0:
+                # Find where the derivative starts to increase excessively before the peak
+                potential_start_indices = np.array(valid_indices)[np.where(valid_indices < peak_index)[0]]
+                filtered_start_indices = []
+                for potential_start_index in potential_start_indices:
+                    if len(np.where(values[potential_start_index:potential_start_index+4] >= 0.03)[0]) > 0: 
+                        filtered_start_indices.append(potential_start_index)
+                # Find where the derivative stops decreasing after the peak
+                if len(filtered_start_indices) > 0:
+                    start_index = int(np.max(filtered_start_indices))
+                    # print("New start index:", start_index)
+
+        return int(start_index), int(stop_index)
+    
+    # Keep the original image shape for resizing after croppping
+    orig_h, orig_w, _ = rgb_image.shape
+
+    ## Filter green pixels
+    hsv_image = cv2.cvtColor(cv2.medianBlur(cv2.GaussianBlur(rgb_image,(5,5),0), 5), cv2.COLOR_BGR2HSV)
+    hue = hsv_image[:, :, 0]
+    start_index, stop_index = find_peak_range(hsv_image)
+    lower_green = start_index
+    upper_green = stop_index
+
+    mask_green = cv2.inRange(hue, lower_green, upper_green)
+
+    _, rect, hull = detect_largest_contour(mask_green)
+
+    min_x, min_y, w, h = rect
+    max_x, max_y = [min_x + w, min_y + h]
+
+    # Crop the image
+    field_cropped_image = cv2.resize(rgb_image[min_y:max_y, min_x:max_x], (orig_w, orig_h)) # Crop and Resize to original size
+
+    if visualize:
+        plt.figure()
+        plt.imshow(mask_green)
+
+        hsv_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2HSV)
+        hue = hsv_image[:, :, 0]
+        hist = np.histogram(hue, bins=range(257), range=(0, 255), density=True)
+        values = hist[0]
+        indices = hist[1]
+        derivative = np.diff(hist[0])
+        peak_index = np.argmax(values)
+
+        plt.figure(figsize=(20,10))
+        plt.plot(indices[:-1], values, lw=4, color='r', label='pixel value density')
+        plt.plot(indices, np.append(derivative, [0, 0]), lw=4, color='b', label='derivative of density')
+        plt.axvline(x = peak_index, color='r', linestyle='dashed')
+        plt.axvline(x = stop_index, color='b', linestyle='dashed')
+        plt.axvline(x = start_index, color='b', linestyle='dashed')
+        plt.legend(fontsize=18)
+        plt.title('hue value density histogram', fontsize=20)
+
+        temp = rgb_image.copy()
+        cv2.polylines(temp, [hull], True, (0, 0, 255), 6)
+        plt.figure()
+        plt.imshow(temp[:, :, ::-1])
+
+    return field_cropped_image
+
+
 # Generate COCO dataset from YOLO model
-def export_coco_dataset_from_prediction(data_path, folder_name, model_name="yolov8n.pt"):
+def export_coco_dataset_from_prediction(data_path, folder_name, model_path, model_name="yolov8n.pt"):
     # Declare input and output paths
-    model_path = os.path.join(os.path.dirname(os.getcwd()), 'models')
     print(model_path)
     model = YOLO(os.path.join(model_path, model_name))
 
@@ -103,7 +212,7 @@ def export_coco_dataset_from_prediction(data_path, folder_name, model_name="yolo
     images = []
     annotations = []
 
-    for image_name in os.listdir(images_path):
+    for image_name in tqdm(os.listdir(images_path)):
         frame = os.path.join(images_path, image_name)
         # Get image shape for COCO dataset:
         h, w, _ = cv2.imread(frame, cv2.IMREAD_UNCHANGED).shape
@@ -149,6 +258,8 @@ def export_coco_dataset_from_prediction(data_path, folder_name, model_name="yolo
 
     with open(os.path.join(dest_coco_path, 'instances_default.json'), 'w') as coco:
         json.dump(coco_dict, coco)
+
+    return dest_coco_path
 
 
 # Merge two COCO dataset
@@ -225,6 +336,8 @@ def merge_coco_dataset(coco_dataset_path_1, coco_dataset_path_2, dest_path=None)
 
     with open(os.path.join(dest_coco_path, 'instances_default.json'), 'w') as f:
         json.dump(final_coco, f)
+
+    return dest_coco_path
             
 
 # Convert COCO dataset to YOLO dataset format        
@@ -494,94 +607,6 @@ def box_to_features(rgb_image,boxes, frame_number):
         obj_number += 1 
 
     return assignment, player_center_coord, box_coord_list, bbox_annotation
-
-
-# Remove the audiences from the image
-def pitch_segment(rgb_image, visualize=False):
-    # Find peak range of pixel value histogram for pitch segmentation
-    def find_peak_range(rgb_image):
-        hsv_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2HSV)
-        hue = hsv_image[:, :, 0]
-        hist = np.histogram(hue, bins=range(257), range=(0, 255), density=True)
-        values = hist[0]
-        indices = hist[1]
-        
-        # Finding the index of the highest peak
-        peak_index = np.argmax(values)
-
-        # Calculate the derivative of the histogram
-        derivative = np.diff(values)
-
-        # Finding the index of the highest peak
-        peak_index = np.argmax(values)
-
-        # Calculate the derivative of the histogram
-        derivative = np.diff(values)
-
-        # Find the regions with fluctuations above the threshold
-        fluctuation_regions = np.where(np.abs(derivative) > 0.0012)[0]
-        print(fluctuation_regions)
-
-        if len(fluctuation_regions) > 0:
-            valid_range = np.arange(peak_index - 40, peak_index + 40)
-            valid_indices = [i for i in range(len(fluctuation_regions)) if fluctuation_regions[i] in valid_range]
-            # Find where the derivative starts to increase excessively before the peak
-            start_index = int(fluctuation_regions[np.argmin(valid_indices)])
-
-            # Find where the derivative stops decreasing after the peak
-            stop_index = int(fluctuation_regions[np.argmax(valid_indices)])
-            return int(start_index), int(stop_index)
-        
-        else:
-            return None
-    
-    # Keep the original image shape for resizing after croppping
-    orig_h, orig_w, _ = rgb_image.shape
-
-    ## Filter green pixels
-    hsv_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2HSV)
-    hue = hsv_image[:, :, 0]
-    start_index, stop_index = find_peak_range(rgb_image)
-    lower_green = start_index
-    upper_green = stop_index
-
-    mask_green = cv2.inRange(hue, lower_green, upper_green)
-
-    _, rect, hull = detect_largest_contour(mask_green)
-
-    min_x, min_y, w, h = rect
-    max_x, max_y = [min_x + w, min_y + h]
-
-    # Crop the image
-    field_cropped_image = cv2.resize(rgb_image[min_y:max_y, min_x:max_x], (orig_w, orig_h)) # Crop and Resize to original size
-
-    if visualize:
-        plt.figure()
-        plt.imshow(mask_green)
-
-        hsv_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2HSV)
-        hue = hsv_image[:, :, 0]
-        hist = np.histogram(hue, bins=range(257), range=(0, 255), density=True)
-        values = hist[0]
-        indices = hist[1]
-        derivative = np.diff(hist[0])
-        peak_index = np.argmax(values)
-
-        plt.figure(figsize=(20,10))
-        plt.plot(indices[:-1], values, lw=4, color='r', label='pixel value density')
-        plt.plot(indices, np.append(derivative, [0, 0]), lw=4, color='b', label='derivative of density')
-        plt.axvline(x = peak_index, color='r', linestyle='dashed')
-        plt.axvline(x = stop_index, color='b', linestyle='dashed')
-        plt.axvline(x = start_index, color='b', linestyle='dashed')
-        plt.legend(fontsize=18)
-        plt.title('hue value density histogram', fontsize=20)
-
-        temp = rgb_image.copy()
-        cv2.polylines(temp, [hull], True, (0, 0, 255), 6)
-        plt.figure()
-        plt.imshow(temp[:, :, ::-1])
-
-    return field_cropped_image
 
 
 # Convert rgb to CLE_lab for computing the difference between 2 different colors
