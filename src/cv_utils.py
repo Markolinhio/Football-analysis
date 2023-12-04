@@ -29,6 +29,8 @@ from sklearn.model_selection import train_test_split
 
 from ultralytics import YOLO
 
+from pitch_segmentation import *
+
 
 # Detect largest contour in the image along with its bounding rectangle and convex hull. Used for field segmentation and misc task when needed
 def detect_largest_contour(image, threshold=False):
@@ -168,6 +170,56 @@ def pitch_segment(rgb_image, visualize=False):
         plt.imshow(temp[:, :, ::-1])
 
     return field_cropped_image
+
+
+def pitch_segment_by_dl_model(image, model_path, visualize=False, device=None):
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Resize((576, 1024)),
+        #transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+    model = PitchSegmentationModel()
+    model.load_state_dict(torch.load(model_path))
+    model.eval()
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    with torch.no_grad():
+        test_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        test_image_tensor = transform(test_image).unsqueeze(0).to(device)
+        model.to(device)
+        predicted_mask = model(test_image_tensor)
+        
+    predicted_mask_binary = (predicted_mask > 0.5).float().squeeze().cpu().numpy().astype(np.uint8)* 255
+    test_image_np = test_image_tensor.squeeze().permute(1, 2, 0).cpu().numpy()
+
+    # Draw the largest contour, convex hull, and bounding box
+    contours, _ = cv2.findContours(predicted_mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    resized_image = None
+    if len(contours) > 0:
+        largest_contour = max(contours, key=cv2.contourArea)
+        contour_image = np.zeros_like(predicted_mask_binary, dtype=np.uint8)
+        cv2.drawContours(contour_image, [largest_contour], -1, 1, thickness=cv2.FILLED)
+        convex_hull = cv2.convexHull(largest_contour)
+        cv2.drawContours(contour_image, [convex_hull], -1, 1, thickness=cv2.FILLED)
+        rect = cv2.boundingRect(largest_contour)
+        cv2.rectangle(contour_image, (rect[0], rect[1]), (rect[0] + rect[2], rect[1] + rect[3]), 1, thickness=2)
+
+        # Crop the image to the bounding box and resize back to original size
+        cropped_image = contour_image[rect[1]:rect[1] + rect[3], rect[0]:rect[0] + rect[2]]
+        resized_image = cv2.resize(cropped_image, (test_image_np.shape[1], test_image_np.shape[0]))
+    if visualize:
+        plt.subplot(1, 2, 1)
+        plt.imshow(test_image_np)
+        plt.title("Original Image")
+
+        plt.subplot(1, 2, 2)
+        plt.imshow(predicted_mask_binary, cmap='gray', vmin=0, vmax=255)
+        plt.title("Predicted Mask")
+        print(np.unique(predicted_mask_binary))
+
+        plt.show()
+    return resized_image
 
 
 # Generate COCO dataset from YOLO model
@@ -510,9 +562,9 @@ def augment_yolo(yaml_path, dataset_path):
     # Random Brightness between -10% and 10%
     # Salt and pepper of 1% of pixels
     transform = albumentations.Compose([
-#         albumentations.HueSaturationValue(p=0.5), #value dau???
-        albumentations.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.1, p=0.5)]) #sao lai co contrast limit? @@
-#         Salt_pepper()])
+        albumentations.HueSaturationValue(p=0.5), #value dau???
+        albumentations.RandomBrightnessContrast(brightness_limit=0.1, contrast_limit=0.1, p=0.5), #sao lai co contrast limit? @@
+        Salt_pepper()])
 
     # Iterate over the images in the dataset path, augment them, and write them to the corresponding destination
     file_path = os.path.join(dataset_path, train_path)
@@ -1005,40 +1057,3 @@ def write_coco_with_player_differentiation(vid_name, model_name, data_path, mode
     print("Done")
 
     
-def pitch_segment_crop(image_path, model, transform, visualize=False):
-    with torch.no_grad():
-        test_image = Image.open(image_path).convert('RGB')
-        test_image_tensor = transform(test_image).unsqueeze(0).to(device)
-        predicted_mask = model(test_image_tensor)
-        
-    predicted_mask_binary = (predicted_mask < 0.5).float().squeeze().cpu().numpy()
-    test_image_np = test_image_tensor.squeeze().permute(1, 2, 0).cpu().numpy()
-
-    # Draw the largest contour, convex hull, and bounding box
-    contours, _ = cv2.findContours((predicted_mask_binary * 255).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    largest_contour = max(contours, key=cv2.contourArea)
-    contour_image = np.zeros_like(predicted_mask_binary, dtype=np.uint8)
-    cv2.drawContours(contour_image, [largest_contour], -1, 1, thickness=cv2.FILLED)
-    convex_hull = cv2.convexHull(largest_contour)
-    cv2.drawContours(contour_image, [convex_hull], -1, 1, thickness=cv2.FILLED)
-    rect = cv2.boundingRect(largest_contour)
-    cv2.rectangle(contour_image, (rect[0], rect[1]), (rect[0] + rect[2], rect[1] + rect[3]), 1, thickness=2)
-
-    # Crop the image to the bounding box and resize back to original size
-    cropped_image = contour_image[rect[1]:rect[1] + rect[3], rect[0]:rect[0] + rect[2]]
-    resized_image = cv2.resize(cropped_image, (test_image_np.shape[1], test_image_np.shape[0]))
-    if visualize:
-        plt.subplot(1, 3, 1)
-        plt.imshow(test_image_np)
-        plt.title("Original Image")
-
-        plt.subplot(1, 3, 2)
-        plt.imshow(predicted_mask_binary)
-        plt.title("Predicted Mask")
-
-        plt.subplot(1, 3, 3)
-        plt.imshow(resized_image)
-        plt.title("Contours and Bounding Box Resized")
-
-        plt.show()
-    return cropped_image
