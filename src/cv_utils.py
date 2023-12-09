@@ -31,6 +31,8 @@ from ultralytics import YOLO
 
 from pitch_segmentation import *
 
+import xml.etree.ElementTree as ET
+
 
 # Detect largest contour in the image along with its bounding rectangle and convex hull. Used for field segmentation and misc task when needed
 def detect_largest_contour(image, threshold=False):
@@ -201,13 +203,14 @@ def pitch_segment_by_dl_model(image, model_path, visualize=False, device=None):
         contour_image = np.zeros_like(predicted_mask_binary, dtype=np.uint8)
         cv2.drawContours(contour_image, [largest_contour], -1, 1, thickness=cv2.FILLED)
         convex_hull = cv2.convexHull(largest_contour)
-        cv2.drawContours(contour_image, [convex_hull], -1, 1, thickness=cv2.FILLED)
         rect = cv2.boundingRect(largest_contour)
         cv2.rectangle(contour_image, (rect[0], rect[1]), (rect[0] + rect[2], rect[1] + rect[3]), 1, thickness=2)
 
         # Crop the image to the bounding box and resize back to original size
         cropped_image = contour_image[rect[1]:rect[1] + rect[3], rect[0]:rect[0] + rect[2]]
         resized_image = cv2.resize(cropped_image, (test_image_np.shape[1], test_image_np.shape[0]))
+    else:
+        resized_image = np.zeros_like(test_image_np)
     if visualize:
         plt.subplot(1, 2, 1)
         plt.imshow(test_image_np)
@@ -216,10 +219,8 @@ def pitch_segment_by_dl_model(image, model_path, visualize=False, device=None):
         plt.subplot(1, 2, 2)
         plt.imshow(predicted_mask_binary, cmap='gray', vmin=0, vmax=255)
         plt.title("Predicted Mask")
-        print(np.unique(predicted_mask_binary))
-
         plt.show()
-    return resized_image
+    return resized_image, predicted_mask_binary,
 
 
 # Generate COCO dataset from YOLO model
@@ -519,6 +520,108 @@ def coco2yolo(train_dataset_path, val_dataset_path=None, test_dataset_path=None,
                 }
     with open(yaml_path, 'w') as yaml_file:
         yaml.dump(info_dict, yaml_file)
+
+
+def cvat2coco(folder_name, data_path):
+    xml_folder = os.path.join(data_path, 'coco_datasets' + '/' + folder_name)
+    xml_path = os.path.join(xml_folder, 'annotations/annotations.xml')
+
+    xml_data = ET.parse(xml_path)
+    root = xml_data.getroot()
+
+    dest_coco_path = os.path.join(xml_folder, 'annotations')
+
+    coco_dict ={}
+    frame_id = 1
+    obj_id = 1
+    categories_dict = [{'id': 1, 'name': 'byline', 'supercategory': ''},
+                    {'id': 2, 'name': 'box', 'supercategory': ''},
+                    {'id': 3, 'name': 'center_circle', 'supercategory': ''},
+                    {'id': 4, 'name': 'goal', 'supercategory': ''},
+                    {'id': 5, 'name': 'center_line', 'supercategory': ''}]
+
+    creation_date = date.today()
+    year = creation_date.year
+    coco_info = {
+        'contributor': 'Khoa Nguyen, Huy Nguyen',
+        'description': folder_name,
+        'url': '',
+        'version': 0,
+        'date_created': str(creation_date),
+        'year': year,
+    }
+
+    images = []
+    annotations = []
+
+    for image_info in root.iter('image'):
+        image_info_dict = {}
+        image_info_dict['id'] = frame_id
+        image_info_dict['file_name'] = image_info.attrib['name']
+        image_info_dict['width'] = image_info.attrib['width']
+        image_info_dict['height'] = image_info.attrib['height']
+
+        images.append(image_info_dict)
+        for annotation_info in image_info.iter():
+            if annotation_info.tag == 'image':
+                continue
+            annotation_dict = {}
+            annotation_dict['id'] = obj_id
+            annotation_dict['image_id'] = frame_id
+            category_id = [category['id'] for category in categories_dict
+                                    if category['name'] == annotation_info.attrib['label']][0]
+            annotation_dict['category_id'] = category_id
+            if category_id == 3:
+                center = (int(float(annotation_info.attrib['cx'])), 
+                          int(float(annotation_info.attrib['cy'])))
+                annotation_dict['center'] = center
+                length = (int(float(annotation_info.attrib['rx'])), 
+                          int(float(annotation_info.attrib['ry'])))
+                annotation_dict['length'] = length
+                if 'rotation' in annotation_info.attrib:
+                    angle = int(float(annotation_info.attrib['rotation']))
+                else:
+                    angle = 0
+                annotation_dict['angle'] = angle
+                annotation_dict['segmentation'] = []
+                annotation_dict['area'] = np.pi*length[0]*length[1]
+                annotation_dict['bbox'] = []
+                annotation_dict['iscrowd'] = 0
+            elif category_id == 4:
+                goal = annotation_info.attrib['points']
+                goal = [float(coord) for xy in goal.split(';') 
+                                            for coord in xy.split(',')]
+                annotation_dict['segmentation'] = [goal]
+                goal = np.array(goal).astype(np.int32).reshape(1, -1, 2)
+                annotation_dict['area'] = cv2.contourArea(goal)
+                annotation_dict['bbox'] = list(cv2.boundingRect(goal))
+                annotation_dict['iscrowd'] = 0
+            else:
+                line = annotation_info.attrib['points']
+
+                annotation_dict['segmentation'] = [[float(coord) for xy in line.split(';') 
+                                                for coord in xy.split(',')]]
+                annotation_dict['area'] = 0.
+                annotation_dict['bbox'] = []
+                annotation_dict['iscrowd'] = 0
+
+            obj_id += 1
+            annotations.append(annotation_dict)
+        frame_id += 1
+    # print(len(annotations))
+    # Write COCO dict
+    coco_dict["info"] = coco_info
+    coco_dict["licenses"] = [{'name': folder_name,
+                            'id': '',
+                            'url': ''}]
+    coco_dict["categories"] = categories_dict
+    coco_dict["images"] = images
+    coco_dict["annotations"] = annotations
+
+    with open(os.path.join(dest_coco_path, 'instances_default.json'), 'w') as coco:
+        json.dump(coco_dict, coco)
+
+    return coco_dict
             
 
 def augment_yolo(yaml_path, dataset_path):
