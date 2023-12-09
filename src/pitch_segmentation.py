@@ -87,6 +87,7 @@ class PitchSegmentationModel(nn.Module):
         self.d2 = decoder_block(32, 16)
         #self.d3 = decoder_block(32, 16)
         self.outputs = nn.Conv2d(16, 1, kernel_size=1, padding=0)
+        self.sigmoid = nn.Sigmoid()
 
     def forward(self, inputs):
         s1, p1 = self.e1(inputs)
@@ -97,7 +98,7 @@ class PitchSegmentationModel(nn.Module):
         d2 = self.d2(d1, s1)
         #d3 = self.d3(d2, s1)
         outputs = self.outputs(d2)
-        return outputs
+        return self.sigmoid(outputs)
     
 
 class PitchDataset(Dataset):
@@ -111,7 +112,7 @@ class PitchDataset(Dataset):
         # self.mask_transform = mask_transform
 
     def __len__(self):
-        return len(self.annotations['annotations'])
+        return len(self.annotations['images'])
 
     def __getitem__(self, idx):
         image_info = self.annotations['images'][idx]
@@ -146,7 +147,70 @@ class PitchDataset(Dataset):
     
 
 def iou_loss(pred, target, smooth=1e-5):
+    # pred = pred.squeeze(1)  # BATCH x 1 x H x W => BATCH x H x W
+    
+    # intersection = (pred & target).float().sum((1, 2))  # Will be zero if Truth=0 or Prediction=0
+    # union = (pred | target).float().sum((1, 2))         # Will be zzero if both are 0
+    
+    # iou = (intersection + smooth) / (union + smooth)  # We smooth our devision to avoid 0/0
+    
+    # thresholded = torch.clamp(20 * (iou - 0.5), 0, 10).ceil() / 10  # This is equal to comparing with thresolds
+    
+    # return 1 - thresholded 
     intersection = (pred * target).sum()
     union = pred.sum() + target.sum() - intersection
     iou = (intersection + smooth) / (union + smooth)
     return 1 - iou
+
+
+class PitchObjectDataset(Dataset):
+    def __init__(self, image_folder, annotation_file, transform=None):
+                        #image_transform=None, mask_transform=None):
+        self.image_folder = image_folder
+        with open(annotation_file, 'r') as f:
+            self.annotations = json.load(f)
+        self.transform = transform
+        # self.image_transform = image_transform
+        # self.mask_transform = mask_transform
+
+    def __len__(self):
+        return len(self.annotations['images'])
+
+    def __getitem__(self, idx):
+        image_info = self.annotations['images'][idx]
+        image_name = image_info["file_name"]
+        #print(image_name)
+        image_id = image_info["id"]
+        annotation_list = [annotation 
+                           for annotation in self.annotations['annotations']
+                           if annotation['image_id'] == image_id]
+        # print(annotation_list)
+        image_path = os.path.join(self.image_folder, image_name)
+        image = cv2.cvtColor(cv2.imread(image_path, 
+                                        cv2.IMREAD_UNCHANGED), cv2.COLOR_BGR2RGB)
+
+        mask = np.zeros(image.shape[:2], dtype=np.uint8)
+        #print(annotation_list)
+        for annotation in annotation_list:
+            if annotation['category_id'] == 3:
+                cv2.ellipse(mask, annotation['center'], annotation['length'],
+                            annotation['angle'], 0, 360, 255, 5)
+            elif annotation['category_id'] == 4:
+                contours = np.array(annotation['segmentation']).reshape(1, -1, 2).astype(np.int32)
+                cv2.drawContours(mask, contours, -1, 255, -1)
+            else:
+                line = np.array(annotation['segmentation']).reshape(1, -1, 2).astype(np.int32)[0]
+                if len(line) == 2:
+                    cv2.line(mask, line[0], line[1], 255, 5)
+                else:
+                    cv2.polylines(mask, [line], False, 255, 5)
+
+        if self.transform:
+            transformed = self.transform(image=image, mask=mask)
+            image = transformed['image']
+            mask = transformed['mask']
+        image = transforms.ToTensor()(image)
+        #image = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])(image)
+        mask = transforms.ToTensor()(mask)
+
+        return image, mask
