@@ -180,7 +180,7 @@ def pitch_segment_by_dl_model(image, model_path, visualize=False, device=None):
         transforms.Resize((576, 1024)),
         #transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ])
-    model = PitchSegmentationModel()
+    model = PitchSegmentation()
     model.load_state_dict(torch.load(model_path))
     model.eval()
     if device is None:
@@ -220,7 +220,40 @@ def pitch_segment_by_dl_model(image, model_path, visualize=False, device=None):
         plt.imshow(predicted_mask_binary, cmap='gray', vmin=0, vmax=255)
         plt.title("Predicted Mask")
         plt.show()
-    return resized_image, predicted_mask_binary,
+    return resized_image, predicted_mask_binary
+
+
+def pitch_detect_object_by_dl_model(image, model_path, visualize=False, device=None):
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Resize((576, 1024)),
+        #transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+    model = PitchObjectSegmentation()
+    model.load_state_dict(torch.load(model_path))
+    model.eval()
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    with torch.no_grad():
+        test_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        test_image_tensor = transform(test_image).unsqueeze(0).to(device)
+        model.to(device)
+        predicted_mask = model(test_image_tensor)
+        predicted_mask = torch.argmax(predicted_mask, dim=1).squeeze(1)
+        
+    predicted_mask = predicted_mask.float().squeeze().cpu().numpy().astype(np.uint8)* 255
+    test_image_np = test_image_tensor.squeeze().permute(1, 2, 0).cpu().numpy()
+
+    if visualize:
+        plt.subplot(1, 2, 1)
+        plt.imshow(test_image_np)
+        plt.title("Original Image")
+
+        plt.subplot(1, 2, 2)
+        plt.imshow(predicted_mask, cmap='gray', vmin=0, vmax=255)
+        plt.title("Predicted Mask")
+        plt.show()
+    return predicted_mask
 
 
 # Generate COCO dataset from YOLO model
