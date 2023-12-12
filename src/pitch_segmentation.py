@@ -128,7 +128,7 @@ class PitchObjectSegmentation(nn.Module):
         d3 = self.d2(d2, s2)
         d4 = self.d1(d3, s1)
         outputs = self.outputs(d4)
-        return self.softmax(outputs)   
+        return outputs
     
     
 class PitchDataset(Dataset):
