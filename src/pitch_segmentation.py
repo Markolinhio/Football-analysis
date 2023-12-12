@@ -27,6 +27,7 @@ from PIL import Image
 from tqdm import tqdm
 
 from matplotlib import pyplot as plt
+import shutil
 torch.cuda.empty_cache()
 torch.cuda.is_available()
 
@@ -112,7 +113,7 @@ class PitchObjectSegmentation(nn.Module):
         self.d3 = decoder_block(512, 256)
         self.d2 = decoder_block(256, 128)
         self.d1 = decoder_block(128, 64)
-        self.outputs = nn.Conv2d(64, 6, kernel_size=1, padding=0)
+        self.outputs = nn.Conv2d(64, 7, kernel_size=1, padding=0)
         self.sigmoid = nn.Sigmoid()
         self.softmax = nn.Softmax(dim=1)
 
@@ -204,18 +205,27 @@ class PitchObjectDataset(Dataset):
         mask = np.zeros(image.shape[:2], dtype=np.uint8)
         #print(annotation_list)
         for annotation in annotation_list:
-            if annotation['category_id'] == 3:
+            if annotation['category_id'] == 1:
+                contours = np.array(annotation['segmentation']).reshape(1, -1, 2).astype(np.int32)
+                x, y, w, h = cv2.boundingRect(contours)
+                cv2.drawContours(mask, contours, -1, int(annotation['category_id'])*42, -1)
+            elif annotation['category_id'] == 4:
                 cv2.ellipse(mask, annotation['center'], annotation['length'],
                             annotation['angle'], 0, 360,
-                            int(annotation['category_id'])*51, 5)
-            elif annotation['category_id'] == 4:
+                            int(annotation['category_id'])*42, 5)
+            elif annotation['category_id'] == 5:
                 contours = np.array(annotation['segmentation']).reshape(1, -1, 2).astype(np.int32)
                 cv2.drawContours(mask, contours, -1, 
-                                int(annotation['category_id'])*51, -1)
+                                int(annotation['category_id'])*42, -1)
             else:
                 line = np.array(annotation['segmentation']).reshape(1, -1, 2).astype(np.int32)[0]
                 cv2.polylines(mask, [line], False,
-                              int(annotation['category_id'])*51, 5)
+                              int(annotation['category_id'])*42, 5)
+                
+        # Crop image to maximize the pitch
+        cropped_image = image[y:y + h, x:x + w]
+        cropped_mask = mask[y:y + h, x:x + w]
+
         # print(np.unique(mask))
         # mask = np.zeros(image.shape, dtype=np.uint8)
         # #print(annotation_list)
@@ -240,7 +250,7 @@ class PitchObjectDataset(Dataset):
         #         #else:
         #         cv2.polylines(mask, [line], False, color, 5)
         if self.transform:
-            transformed = self.transform(image=image, mask=mask)
+            transformed = self.transform(image=cropped_image, mask=cropped_mask)
             image = transformed['image']
             mask = transformed['mask']
         image = transforms.ToTensor()(image)
@@ -305,7 +315,7 @@ def iou_multiclass_loss(preds, targets, smooth=1e-5):
 
             # Calculate intersection and union for the current class
             intersection = torch.sum(preds[batch_idx, class_id, :, :] * class_mask)
-            union = torch.sum(preds[batch_idx, class_id, :, :] + class_mask) - intersection
+            union = torch.sum(preds[batch_idx, class_id, :, :]) + torch.sum(class_mask) - intersection
 
             # Calculate IoU for the current class and add to the sum
             class_iou = (intersection + smooth) / (union + smooth)  # Adding a small epsilon to avoid division by zero
@@ -336,3 +346,69 @@ def iou_multiclass_loss(preds, targets, smooth=1e-5):
     # mean_iou_loss = 1 - torch.mean(iou_per_class)
 
     return iou
+
+
+def generate_complete_pitch_segment_dataset(data_path, pitch_object_dataset_path, pitch_segmenta_dataset_path):
+    dest_path = os.path.join(data_path, 'coco_datasets/completed_pitch_segments')
+    dest_coco_path = os.path.join(dest_path, 'annotations')
+    dest_images_path = os.path.join(dest_path, 'images')
+    for dest in [dest_path, dest_coco_path, dest_images_path]:
+        if not os.path.exists(dest):
+            os.mkdir(dest)
+
+    # Load data
+    images_path_1 = os.path.join(pitch_object_dataset_path, 'images')
+    images_path_2 = os.path.join(pitch_segmenta_dataset_path, 'images')
+    coco_path_1 = os.path.join(pitch_object_dataset_path, 'annotations/instances_default.json')
+    coco_path_2 = os.path.join(pitch_segmenta_dataset_path, 'annotations/instances_default.json')
+
+    coco_1 = json.load(open(coco_path_1))
+    image_info_list_1 = coco_1['images']
+    annotation_info_list_1 = coco_1['annotations']
+    categories_list_1 = coco_1['categories']
+    for category in categories_list_1:
+        category['id'] = category['id'] + 1
+    coco_2 = json.load(open(coco_path_2))
+    image_info_list_2 = coco_2['images']
+    annotation_info_list_2 = coco_2['annotations']
+
+    new_category_list = coco_2['categories'] + categories_list_1
+    new_image_info_list = image_info_list_1 
+    new_info_dict = coco_1['info']
+    new_licenses_dict = coco_1['licenses']
+
+    new_annotation_list = []
+    for image_info in image_info_list_1:
+        image_name = image_info['file_name']
+        image_id_1 = image_info['id']
+        image_id_2 = [image_info_2['id'] for image_info_2 in image_info_list_2
+                                    if image_info_2['file_name'] == image_name][0]
+        
+        # print(image_id_2, image_id_1)
+        annotation_info_1 = [annotation_1 for annotation_1 in annotation_info_list_1
+                                        if annotation_1['image_id'] == image_id_1]
+        annotation_info_2 = [annotation_2 for annotation_2 in annotation_info_list_2
+                                        if annotation_2['image_id'] == image_id_2][0]
+        
+        annotation_info_2['image_id'] = image_id_1
+        new_annotation_list.append(annotation_info_2)
+        for annotation_1 in annotation_info_1:
+            annotation_1['category_id'] = annotation_1['category_id'] + 1
+
+            new_annotation_list.append(annotation_1)
+
+    final_coco = coco_1
+    final_coco["info"] = new_info_dict
+    final_coco["licenses"] = new_licenses_dict
+    final_coco["categories"] = new_category_list
+    final_coco["images"] = new_image_info_list
+    final_coco["annotations"] = new_annotation_list
+
+    with open(os.path.join(dest_coco_path, 'instances_default.json'), 'w') as f:
+        json.dump(final_coco, f)
+
+    for image_name in os.listdir(images_path_1):
+        shutil.copy(os.path.join(images_path_1, image_name), 
+                    os.path.join(dest_images_path, image_name))
+        
+    return dest_path

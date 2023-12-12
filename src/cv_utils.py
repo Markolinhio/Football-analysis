@@ -239,9 +239,8 @@ def pitch_detect_object_by_dl_model(image, model_path, visualize=False, device=N
         test_image_tensor = transform(test_image).unsqueeze(0).to(device)
         model.to(device)
         predicted_mask = model(test_image_tensor)
-        predicted_mask = torch.argmax(predicted_mask, dim=1).squeeze(1)
+        predicted_mask = (torch.argmax(outputs.cpu(), dim=1).squeeze(1)[0]*255).numpy().astype(np.int32)
         
-    predicted_mask = predicted_mask.float().squeeze().cpu().numpy().astype(np.uint8)* 255
     test_image_np = test_image_tensor.squeeze().permute(1, 2, 0).cpu().numpy()
 
     if visualize:
