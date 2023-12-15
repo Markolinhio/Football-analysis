@@ -172,9 +172,8 @@ class PitchDataset(Dataset):
         image = transforms.ToTensor()(image)
         #image = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])(image)
         mask = transforms.ToTensor()(mask)
-
         return image, mask
-    
+
 
 class PitchObjectDataset(Dataset):
     def __init__(self, image_folder, annotation_file, transform=None):
@@ -197,6 +196,7 @@ class PitchObjectDataset(Dataset):
         annotation_list = [annotation 
                            for annotation in self.annotations['annotations']
                            if annotation['image_id'] == image_id]
+        category_list = self.annotations['categories']
         # print(annotation_list)
         image_path = os.path.join(self.image_folder, image_name)
         image = cv2.cvtColor(cv2.imread(image_path, 
@@ -212,7 +212,7 @@ class PitchObjectDataset(Dataset):
             elif annotation['category_id'] == 4:
                 cv2.ellipse(mask, annotation['center'], annotation['length'],
                             annotation['angle'], 0, 360,
-                            int(annotation['category_id'])*42, 5)
+                            int(annotation['category_id'])*42, 7)
             elif annotation['category_id'] == 5:
                 contours = np.array(annotation['segmentation']).reshape(1, -1, 2).astype(np.int32)
                 cv2.drawContours(mask, contours, -1, 
@@ -220,7 +220,7 @@ class PitchObjectDataset(Dataset):
             else:
                 line = np.array(annotation['segmentation']).reshape(1, -1, 2).astype(np.int32)[0]
                 cv2.polylines(mask, [line], False,
-                              int(annotation['category_id'])*42, 5)
+                              int(annotation['category_id'])*42, 7)
                 
         # Crop image to maximize the pitch
         cropped_image = image[y:y + h, x:x + w]
@@ -256,7 +256,10 @@ class PitchObjectDataset(Dataset):
         image = transforms.ToTensor()(image)
         #image = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])(image)
         mask = transforms.ToTensor()(mask)
-        return image, mask
+
+        one_hot_mask = torch.zeros((len(category_list)+1, image.size()[1], image.size()[2]))
+        one_hot_mask.scatter_(1, (mask*255/42).long(), 1)
+        return image, mask, one_hot_mask
 
 
 def iou_loss(pred, target, smooth=1e-5):
@@ -346,6 +349,57 @@ def iou_multiclass_loss(preds, targets, smooth=1e-5):
     # mean_iou_loss = 1 - torch.mean(iou_per_class)
 
     return iou
+
+
+def dice_loss(preds, targets_one_hot, smooth=1.):
+    # input = torch.sigmoid(input)
+    # smooth = 1.0
+    # iflat = input.view(-1)
+    # tflat = target.view(-1)
+    # intersection = (iflat * tflat).sum()
+    # return ((2.0 * intersection + smooth) / (iflat.sum() + tflat.sum() + smooth))
+
+    dice_sum = 0.
+    for i in range(preds.size()[1]):
+        channel_pred = preds[:, i, :, :]
+        channel_target = targets_one_hot[:, i, :, :]
+        channel_iflat = torch.sigmoid(channel_pred).flatten()
+        channel_tflat =  channel_target.flatten()
+        channel_intersection = (channel_iflat * channel_tflat).sum()
+        dice_channel = 1 - ((2.0 * channel_intersection + smooth) / (channel_iflat.sum() + channel_tflat.sum() + smooth))
+        dice_channel = dice_channel*0.2 if i==1 else dice_channel
+        # print(dice_channel)
+        dice_sum += dice_channel
+    dice_sum = dice_sum/preds.size()[1]
+    return dice_sum
+
+
+class FocalLoss(nn.Module):
+    def __init__(self, gamma):
+        super().__init__()
+        self.gamma = gamma
+
+    def forward(self, input, target):
+        if not (target.size() == input.size()):
+            raise ValueError("Target size ({}) must be the same as input size ({})"
+                             .format(target.size(), input.size()))
+        max_val = (-input).clamp(min=0)
+        loss = input - input * target + max_val + \
+            ((-max_val).exp() + (-input - max_val).exp()).log()
+        invprobs = F.logsigmoid(-input * (target * 2.0 - 1.0))
+        loss = (invprobs * self.gamma).exp() * loss
+        return loss.mean()
+
+
+class MixedLoss(nn.Module):
+    def __init__(self, alpha, gamma):
+        super().__init__()
+        self.alpha = alpha
+        self.focal = FocalLoss(gamma)
+
+    def forward(self, input, target):
+        loss = self.alpha*self.focal(input, target) - torch.log(dice_loss(input, target))
+        return loss.mean()
 
 
 def generate_complete_pitch_segment_dataset(data_path, pitch_object_dataset_path, pitch_segmenta_dataset_path):

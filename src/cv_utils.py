@@ -223,13 +223,12 @@ def pitch_segment_by_dl_model(image, model_path, visualize=False, device=None):
     return resized_image, predicted_mask_binary
 
 
-def pitch_detect_object_by_dl_model(image, model_path, visualize=False, device=None):
+def pitch_detect_object_by_dl_model(image, model, model_path, visualize=False, device=None):
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Resize((576, 1024)),
         #transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ])
-    model = PitchObjectSegmentation()
     model.load_state_dict(torch.load(model_path))
     model.eval()
     if device is None:
@@ -239,7 +238,8 @@ def pitch_detect_object_by_dl_model(image, model_path, visualize=False, device=N
         test_image_tensor = transform(test_image).unsqueeze(0).to(device)
         model.to(device)
         predicted_mask = model(test_image_tensor)
-        predicted_mask = (torch.argmax(outputs.cpu(), dim=1).squeeze(1)[0]*255).numpy().astype(np.int32)
+        predicted_mask = F.softmax(predicted_mask)
+        predicted_mask = (torch.argmax(predicted_mask.cpu(), dim=1).squeeze(1)[0]*42).numpy().astype(np.int32)
         
     test_image_np = test_image_tensor.squeeze().permute(1, 2, 0).cpu().numpy()
 
