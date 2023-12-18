@@ -243,16 +243,25 @@ def pitch_detect_object_by_dl_model(image, model, model_path, visualize=False, d
         
     test_image_np = test_image_tensor.squeeze().permute(1, 2, 0).cpu().numpy()
 
+    temp = cv2.cvtColor(predicted_mask.astype(np.float32), cv2.COLOR_GRAY2RGB)
+    temp[np.all(temp== (42, 42, 42), axis=-1)] = (0,255,0)
+    temp[np.all(temp== (84, 84, 84), axis=-1)] = (255,0,0)
+    temp[np.all(temp== (126, 126, 126), axis=-1)] = (255,255,0)
+    temp[np.all(temp== (168, 168, 168), axis=-1)] = (0,0,255)
+    temp[np.all(temp== (210, 210, 210), axis=-1)] = (255,255,255)
+    temp[np.all(temp== (252, 252, 252), axis=-1)] = (0,255,255)
+    colored_mask = temp
+
     if visualize:
         plt.subplot(1, 2, 1)
         plt.imshow(test_image_np)
         plt.title("Original Image")
 
         plt.subplot(1, 2, 2)
-        plt.imshow(predicted_mask, cmap='gray', vmin=0, vmax=255)
+        plt.imshow(colored_mask)
         plt.title("Predicted Mask")
         plt.show()
-    return predicted_mask
+    return predicted_mask, colored_mask
 
 
 # Generate COCO dataset from YOLO model

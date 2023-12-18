@@ -223,8 +223,8 @@ class PitchObjectDataset(Dataset):
                               int(annotation['category_id'])*42, 7)
                 
         # Crop image to maximize the pitch
-        cropped_image = image[y:y + h, x:x + w]
-        cropped_mask = mask[y:y + h, x:x + w]
+        # cropped_image = image[y:y + h, x:x + w]
+        # cropped_mask = mask[y:y + h, x:x + w]
 
         # print(np.unique(mask))
         # mask = np.zeros(image.shape, dtype=np.uint8)
@@ -250,7 +250,7 @@ class PitchObjectDataset(Dataset):
         #         #else:
         #         cv2.polylines(mask, [line], False, color, 5)
         if self.transform:
-            transformed = self.transform(image=cropped_image, mask=cropped_mask)
+            transformed = self.transform(image=image, mask=mask)
             image = transformed['image']
             mask = transformed['mask']
         image = transforms.ToTensor()(image)
@@ -379,16 +379,37 @@ class FocalLoss(nn.Module):
         super().__init__()
         self.gamma = gamma
 
-    def forward(self, input, target):
-        if not (target.size() == input.size()):
+    def forward(self, preds, targets):
+        if not (targets.size() == preds.size()):
             raise ValueError("Target size ({}) must be the same as input size ({})"
-                             .format(target.size(), input.size()))
-        max_val = (-input).clamp(min=0)
-        loss = input - input * target + max_val + \
-            ((-max_val).exp() + (-input - max_val).exp()).log()
-        invprobs = F.logsigmoid(-input * (target * 2.0 - 1.0))
+                             .format(targets.size(), preds.size()))
+        max_val = (-preds).clamp(min=0)
+        loss = preds - preds * targets + max_val + \
+            ((-max_val).exp() + (-preds - max_val).exp()).log()
+        invprobs = F.logsigmoid(-preds * (targets * 2.0 - 1.0))
         loss = (invprobs * self.gamma).exp() * loss
         return loss.mean()
+
+
+class FocalLoss_2(nn.Module):
+    def init(self, weight=None, size_average=True):
+        super(FocalLoss, self).init()
+
+    def forward(self, inputs, targets, alpha=0.8, gamma=2, smooth=1):
+        
+        #comment out if your model contains a sigmoid or equivalent activation layer
+        inputs = F.sigmoid(inputs)       
+        
+        #flatten label and prediction tensors
+        inputs = inputs.view(-1)
+        targets = targets.view(-1)
+        
+        #first compute binary cross-entropy 
+        BCE = F.binary_cross_entropy(inputs, targets, reduction='mean')
+        BCE_EXP = torch.exp(-BCE)
+        focal_loss = alpha * (1-BCE_EXP)**gamma * BCE
+                       
+        return focal_loss
 
 
 class MixedLoss(nn.Module):
