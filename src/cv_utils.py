@@ -707,17 +707,15 @@ def reduce_area(bounding_box, threshold = 0.4):
     return new_startX, new_startY, new_endX, new_endY
 
 
-def team_color_from_box(bounding_box, frame, grass_color):
-    (new_x_1,new_x_2,new_y_1,new_y_2) = reduce_area(x_1,x_2,y_1,y_2) 
+def average_color_from_box(bounding_box, frame, grass_color):
+    (new_x_1, new_y_1, new_x_2, new_y_2) = reduce_area(bounding_box) 
     cropped = frame[new_y_1:new_y_2, new_x_1:new_x_2]
-    test_crop = cropped[:,:,::-1].copy()
-    accepted_pixel = []
-    for row_idx in range(cropped.shape[0]):
-        for col_idx in range(cropped.shape[1]):        
-            current_color = test_crop[row_idx][col_idx]
-            if sum(abs(current_color - grass_color)) > 60:
-                accepted_pixel.append(current_color)
-    final_color = np.mean(accepted_pixel,axis = 0)
+    con1 = np.abs(cropped[:,:,0] - grass_color[0]) > 30
+    con2 = np.abs(cropped[:,:,1] - grass_color[1]) > 30
+    con3 = np.abs(cropped[:,:,2] - grass_color[2]) > 30
+    not_grass_pixels = cropped[np.where(con1 | con2 | con3)]
+    final_color = np.mean(not_grass_pixels, axis=0)
+
     return final_color
 
 

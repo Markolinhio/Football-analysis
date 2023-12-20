@@ -45,18 +45,6 @@ def model_predict(model, frame):
     return player_box_list, ball_box
 
 
-def average_color_from_box(bounding_box, frame, grass_color):
-    (new_x_1, new_y_1, new_x_2, new_y_2) = reduce_area(bounding_box) 
-    cropped = frame[new_y_1:new_y_2, new_x_1:new_x_2]
-    con1 = np.abs(cropped[:,:,0] - grass_color[0]) > 30
-    con2 = np.abs(cropped[:,:,1] - grass_color[1]) > 30
-    con3 = np.abs(cropped[:,:,2] - grass_color[2]) > 30
-    not_grass_pixels = cropped[np.where(con1 | con2 | con3)]
-    final_color = np.mean(not_grass_pixels, axis=0)
-
-    return final_color
-
-
 def player_color_from_frame(player_box_list, frame):
     #Compute the hue of grass:
     grass_average = frame[:,:,::-1].mean(axis=0).mean(axis=0)
@@ -82,14 +70,12 @@ def cluster_objects_by_color(color_list):
     return team_1_idx, team_2_idx, misc_idx
 
 
-def fix_team_annotation_by_average_color(color_list, threshold=60):
+def fix_annotation_by_color(color_list, team_1_global_color, team_2_global_color,
+                             threshold=60):
     team_1_idx, team_2_idx, misc_idx = cluster_objects_by_color(color_list)
 
-    team_1_color = np.mean([color_list[i] for i in team_1_idx], axis=0)
-    team_2_color = np.mean([color_list[i] for i in team_2_idx], axis=0)
-
-    lab_team_1_color = rgb_to_lab_color(team_1_color)
-    lab_team_2_color = rgb_to_lab_color(team_2_color)
+    lab_team_1_color = rgb_to_lab_color(team_1_global_color)
+    lab_team_2_color = rgb_to_lab_color(team_2_global_color)
     lab_color_list = [rgb_to_lab_color(x) for x in color_list]
 
     fixed_team_1_idx = []
@@ -100,14 +86,16 @@ def fix_team_annotation_by_average_color(color_list, threshold=60):
         delta_1 = delta_e_cie2000(lab_team_1_color, lab_color_box)
         delta_2 = delta_e_cie2000(lab_team_2_color, lab_color_box)
 
-        if delta_1 <= threshold:
-            fixed_team_1_idx.append(i)
-        elif delta_1 > threshold and delta_2 < 30:
-            fixed_team_2_idx.append(i)
-        else:
-            fixed_misc_idx.append(i)
+        if i in team_1_idx:
+            if delta_2 > threshold and delta_2 < 30:
+                fixed_team_2_idx.append(i)
+            else:
+                fixed_misc_idx.append(i)
 
     return fixed_team_1_idx, fixed_team_2_idx, fixed_misc_idx
+
+
+
 
 
 def assign_player_by_startingXI(start_box_list, formation_dict):
