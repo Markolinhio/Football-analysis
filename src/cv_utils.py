@@ -267,7 +267,7 @@ def pitch_detect_object_by_dl_model(image, model, model_path, visualize=False, d
 # Generate COCO dataset from YOLO model
 def export_coco_dataset_from_prediction(data_path, folder_name, model_path, model_name="yolov8n.pt"):
     # Declare input and output paths
-    print(model_path)
+    # print(model_path)
     model = YOLO(os.path.join(model_path, model_name))
 
     images_path = os.path.join(data_path, 'images' + '/' + folder_name)
@@ -740,22 +740,36 @@ setattr(np, "asscalar", patch_asscalar)
 
 
 # Reduction of bounding box area so that it captures the player shirts only
-def reduce_area(startX, endX, startY, endY, threshold = 0.4):
+def reduce_area(bounding_box, threshold = 0.4):
     # Input the coordinates of a bounding boxes and output the desired box
     # Threshold is % of the remaining area
     # end_Y is strictly set to half od the height of the image so that the code ignores the pants
     # The correct version of the code with Y axis
     # new_endY = round(endY - (1-np.sqrt(z))*(endY-startY)/2) 
-
+    startX, startY, endX, endY = bounding_box
     new_startY = round(startY + (1-np.sqrt(threshold))*(endY - startY)/2)
     new_endY   = round((startY + endY)/2)                   
     new_startX = round(startX + (1-np.sqrt(threshold))*(endX - startX)/2)
     new_endX   = round(endX - (1-np.sqrt(threshold))*(endX - startX)/2)
 
-    return new_startX, new_endX, new_startY, new_endY
+    return new_startX, new_startY, new_endX, new_endY
 
 
-def box_to_features(rgb_image,boxes, frame_number):
+def team_color_from_box(bounding_box, frame, grass_color):
+    (new_x_1,new_x_2,new_y_1,new_y_2) = reduce_area(x_1,x_2,y_1,y_2) 
+    cropped = frame[new_y_1:new_y_2, new_x_1:new_x_2]
+    test_crop = cropped[:,:,::-1].copy()
+    accepted_pixel = []
+    for row_idx in range(cropped.shape[0]):
+        for col_idx in range(cropped.shape[1]):        
+            current_color = test_crop[row_idx][col_idx]
+            if sum(abs(current_color - grass_color)) > 60:
+                accepted_pixel.append(current_color)
+    final_color = np.mean(accepted_pixel,axis = 0)
+    return final_color
+
+
+def box_to_features(rgb_image, boxes, frame_number):
 
     # Input: rgb_images and the resulting bounding boxes from the model
     # Output: Lists of extracted features namely 
@@ -766,11 +780,12 @@ def box_to_features(rgb_image,boxes, frame_number):
 
     #Compute the hue of grass:
     grass_average = rgb_image[:,:,::-1].mean(axis=0).mean(axis=0)
+
     obj_number = 0
     # For each box, extract features
     for box in boxes:
-        crop = box.xyxy
-        (x_1, y_1, x_2, y_2) = np.concatenate(crop.cpu().detach().int().tolist()) # Orgin coordinates
+        box_coord = box.xyxy.cpu().detach().int().tolist()
+        (x_1, y_1, x_2, y_2) = box_coord # Orgin coordinates
 
         box_coord_list.append(((x_1, y_1), (x_2, y_2)))       # save original coordinates
         player_center_coord.append((0.5*(x_1 + x_2), 0.5*(y_1 + y_2)))             # Coordinate of the center of the box
@@ -788,16 +803,7 @@ def box_to_features(rgb_image,boxes, frame_number):
             # For the main color, we first reduce area of search to only shirts
             # Further filter to remove all the grass hue from the image
             # With all the accepted pixels, we compute the average color of the shirts
-            (new_x_1,new_x_2,new_y_1,new_y_2) = reduce_area(x_1,x_2,y_1,y_2) 
-            cropped = rgb_image[new_y_1:new_y_2, new_x_1:new_x_2]
-            test_crop = cropped[:,:,::-1].copy()
-            accepted_pixel = []
-            for row_idx in range(cropped.shape[0]):
-                for col_idx in range(cropped.shape[1]):        
-                    current_color = test_crop[row_idx][col_idx]
-                    if sum(abs(current_color - grass_average)) > 60:
-                        accepted_pixel.append(current_color)
-            final_color = np.mean(accepted_pixel,axis = 0)
+            final_color = average_color_from_box(box, rgb_image, grass_average)
             assignment.append(final_color)                     # assignment by color
         
         obj_number += 1 
@@ -816,7 +822,7 @@ def rgb_to_lab_color(rgb_color):
 
 
 # Check if there is a mismatch color in the same team and change the labels accordingly
-def misc_in_teams(labels, assignment, teams, threshold = 50):
+def misc_in_teams(labels, color_list, teams, threshold = 50):
     # Input: labels, their color values, and counter for the labels
     # Output: Updated labels
 
@@ -825,13 +831,13 @@ def misc_in_teams(labels, assignment, teams, threshold = 50):
     team_2 = np.where(labels == teams[1][0])[0]
 
     # Compute the average color of each team with the index
-    team_1_color = np.mean([assignment[i] for i in team_1],axis =0)
-    team_2_color = np.mean([assignment[i] for i in team_2],axis =0)
+    team_1_color = np.mean([color_list[i] for i in team_1],axis =0)
+    team_2_color = np.mean([color_list[i] for i in team_2],axis =0)
         
     # Convert rgb to lab
     lab_team_1_color = rgb_to_lab_color(team_1_color)
     lab_team_2_color = rgb_to_lab_color(team_2_color)
-    lab_assignment = [rgb_to_lab_color(x) for x in assignment]
+    lab_color_list = [rgb_to_lab_color(x) for x in color_list]
 
     # All the number labels the KMeans gives
     updated_labels = labels
@@ -840,8 +846,8 @@ def misc_in_teams(labels, assignment, teams, threshold = 50):
     misc_label   = teams[2][0]
 
     # Compute the difference of colors within their own team
-    team_1_check = [delta_e_cie2000(lab_team_1_color, lab_assignment[i]) for i in team_1]
-    team_2_check = [delta_e_cie2000(lab_team_2_color, lab_assignment[i]) for i in team_2]
+    team_1_check = [delta_e_cie2000(lab_team_1_color, lab_color_list[i]) for i in team_1]
+    team_2_check = [delta_e_cie2000(lab_team_2_color, lab_color_list[i]) for i in team_2]
     
     # Check if there is a mismatch color within 2 teams
     convert_misc_1_idx = [i for i in range(len(team_1_check)) if team_1_check[i] > threshold] 
@@ -849,18 +855,18 @@ def misc_in_teams(labels, assignment, teams, threshold = 50):
     
     # If yes, then change the labels accordingly
     if len(convert_misc_1_idx) > 0:
-            for x in convert_misc_1_idx:
-                if delta_e_cie2000(lab_team_2_color,lab_assignment[x]) < 30:
-                    updated_labels[team_1[x]] = team_2_label
-                else:
-                    updated_labels[team_1[x]] = misc_label
+        for x in convert_misc_1_idx:
+            if delta_e_cie2000(lab_team_2_color,lab_color_list[x]) < 30:
+                updated_labels[team_1[x]] = team_2_label
+            else:
+                updated_labels[team_1[x]] = misc_label
             
     if len(convert_misc_2_idx) > 0:
-            for y in convert_misc_2_idx:
-                if delta_e_cie2000(lab_team_1_color,lab_assignment[y]) < 30:
-                    updated_labels[team_2[y]] = team_1_label
-                else:
-                    updated_labels[team_2[y]] = misc_label
+        for y in convert_misc_2_idx:
+            if delta_e_cie2000(lab_team_1_color,lab_color_list[y]) < 30:
+                updated_labels[team_2[y]] = team_1_label
+            else:
+                updated_labels[team_2[y]] = misc_label
     
     return updated_labels, lab_team_1_color, lab_team_2_color
 
