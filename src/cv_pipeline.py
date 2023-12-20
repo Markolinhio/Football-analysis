@@ -127,7 +127,7 @@ def is_same_object(previous_bounding_box, current_bounding_box, threshold=15):
         return False
     
 
-def visualize_team_player(frame, team_1_box, team_2_box=None, misc_box=None, ball_box=None):
+def visualize_team_players(frame, team_1_box, team_2_box=None, misc_box=None, ball_box=None):
     temp = frame.copy()
     for player_box in team_1_box:
         center = box_center(player_box)

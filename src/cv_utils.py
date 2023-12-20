@@ -174,62 +174,12 @@ def pitch_segment(rgb_image, visualize=False):
     return field_cropped_image
 
 
-def pitch_segment_by_dl_model(image, model_path, visualize=False, device=None):
+def pitch_segment(image, model, visualize=False, device=None):
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Resize((576, 1024)),
         #transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ])
-    model = PitchSegmentation()
-    model.load_state_dict(torch.load(model_path))
-    model.eval()
-    if device is None:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    with torch.no_grad():
-        test_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        test_image_tensor = transform(test_image).unsqueeze(0).to(device)
-        model.to(device)
-        predicted_mask = model(test_image_tensor)
-        
-    predicted_mask_binary = (predicted_mask > 0.5).float().squeeze().cpu().numpy().astype(np.uint8)* 255
-    test_image_np = test_image_tensor.squeeze().permute(1, 2, 0).cpu().numpy()
-
-    # Draw the largest contour, convex hull, and bounding box
-    contours, _ = cv2.findContours(predicted_mask_binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-    resized_image = None
-    if len(contours) > 0:
-        largest_contour = max(contours, key=cv2.contourArea)
-        contour_image = np.zeros_like(predicted_mask_binary, dtype=np.uint8)
-        cv2.drawContours(contour_image, [largest_contour], -1, 1, thickness=cv2.FILLED)
-        convex_hull = cv2.convexHull(largest_contour)
-        rect = cv2.boundingRect(largest_contour)
-        cv2.rectangle(contour_image, (rect[0], rect[1]), (rect[0] + rect[2], rect[1] + rect[3]), 1, thickness=2)
-
-        # Crop the image to the bounding box and resize back to original size
-        cropped_image = contour_image[rect[1]:rect[1] + rect[3], rect[0]:rect[0] + rect[2]]
-        resized_image = cv2.resize(cropped_image, (test_image_np.shape[1], test_image_np.shape[0]))
-    else:
-        resized_image = np.zeros_like(test_image_np)
-    if visualize:
-        plt.subplot(1, 2, 1)
-        plt.imshow(test_image_np)
-        plt.title("Original Image")
-
-        plt.subplot(1, 2, 2)
-        plt.imshow(predicted_mask_binary, cmap='gray', vmin=0, vmax=255)
-        plt.title("Predicted Mask")
-        plt.show()
-    return resized_image, predicted_mask_binary
-
-
-def pitch_detect_object_by_dl_model(image, model, model_path, visualize=False, device=None):
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Resize((576, 1024)),
-        #transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ])
-    model.load_state_dict(torch.load(model_path))
     model.eval()
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -252,6 +202,8 @@ def pitch_detect_object_by_dl_model(image, model, model_path, visualize=False, d
     temp[np.all(temp== (252, 252, 252), axis=-1)] = (0,255,255)
     colored_mask = temp
 
+    predicted_mask = cv2.resize(predicted_mask.astype(float), (image.shape[1], image.shape[0]))
+    colored_mask = cv2.resize(colored_mask.astype(float), (image.shape[1], image.shape[0]))
     if visualize:
         plt.subplot(1, 2, 1)
         plt.imshow(test_image_np)
