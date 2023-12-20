@@ -70,6 +70,14 @@ def cluster_objects_by_color(color_list):
     return team_1_idx, team_2_idx, misc_idx
 
 
+def match_color(lab_color_1,lab_color_2):
+    threshold = 30
+    diff = delta_e_cie2000(lab_color_1,lab_color_2)
+    if diff > threshold:
+        return False
+    else:
+        return True 
+
 def fix_annotation_by_color(color_list, team_1_global_color, team_2_global_color,
                              threshold=60):
     team_1_idx, team_2_idx, misc_idx = cluster_objects_by_color(color_list)
