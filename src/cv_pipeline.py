@@ -171,8 +171,8 @@ def in_collision(player_box_1, player_box_2, intersection_threshold=10, distance
         return False
 
 
-
-def visualize_team_players(frame, team_1_box, team_2_box=None, misc_box=None, ball_box=None):
+def visualize_team_players(frame, team_1_box, team_2_box=None, misc_box=None, ball_box=None, 
+                           team_1_player_ids=None, team_2_player_ids=None, misc_player_ids=None):
     temp = frame.copy()
     for player_box in team_1_box:
         center = box_center(player_box)
@@ -181,6 +181,7 @@ def visualize_team_players(frame, team_1_box, team_2_box=None, misc_box=None, ba
         cv2.circle(temp, bottom, 7, (0, 255, 0), -1)
         cv2.rectangle(temp, (player_box[0], player_box[1]), (player_box[2], player_box[3]),
                     (255, 0, 0), 3)
+        draw_player_id_team_1(temp, player_box, team_1_player_ids)
 
     if team_2_box:    
         for player_box in team_2_box:
@@ -190,6 +191,7 @@ def visualize_team_players(frame, team_1_box, team_2_box=None, misc_box=None, ba
             cv2.circle(temp, bottom, 7, (0, 255, 0), -1)
             cv2.rectangle(temp, (player_box[0], player_box[1]), (player_box[2], player_box[3]),
                         (0, 0, 255), 3)
+            draw_player_id_team_2(temp, player_box, team_2_player_ids)
     
     if misc_box:
         for player_box in misc_box:
@@ -199,6 +201,7 @@ def visualize_team_players(frame, team_1_box, team_2_box=None, misc_box=None, ba
             cv2.circle(temp, bottom, 7, (0, 255, 0), -1)
             cv2.rectangle(temp, (player_box[0], player_box[1]), (player_box[2], player_box[3]),
                         (255, 0, 255), 3)
+            draw_player_id_misc(temp, player_box, misc_player_ids)
 
     if ball_box:
         cv2.rectangle(temp, (ball_box[0], ball_box[1]), (ball_box[2], ball_box[3]),
@@ -208,5 +211,23 @@ def visualize_team_players(frame, team_1_box, team_2_box=None, misc_box=None, ba
 
     plt.figure()
     plt.imshow(temp)
+
+
+def draw_player_id_team_1(image, player_box, player_ids):
+    player_id = player_ids.get(f"player_{player_box[0]}_{player_box[1]}_{player_box[2]}_{player_box[3]}", "")
+    cv2.putText(image, str(player_id), (player_box[0], player_box[1] - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 2.5, (255, 0, 0), 5)
+    
+    
+def draw_player_id_team_2(image, player_box, player_ids):
+    player_id = player_ids.get(f"player_{player_box[0]}_{player_box[1]}_{player_box[2]}_{player_box[3]}", "")
+    cv2.putText(image, str(player_id), (player_box[0], player_box[1] - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 2.5, (0, 0, 255), 5)
+
+    
+def draw_player_id_misc(image, player_box, player_ids):
+    player_id = player_ids.get(f"player_{player_box[0]}_{player_box[1]}_{player_box[2]}_{player_box[3]}", "")
+    cv2.putText(image, str(player_id), (player_box[0], player_box[1] - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 2.5, (255, 0, 255), 5)
 
 
