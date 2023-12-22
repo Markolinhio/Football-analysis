@@ -26,6 +26,15 @@ def box_bottom_coord(bounding_box):
     return (bottom_centerX, bottom_centerY)
 
 
+def box_intersection(bounding_box_1, bounding_box_2):
+    dx = min(bounding_box_1[2], bounding_box_2[2]) - max(bounding_box_1[0], bounding_box_2[0])
+    dy = min(bounding_box_1[3], bounding_box_2[3]) - max(bounding_box_1[1], bounding_box_2[1])
+    if (dx>=0) and (dy>=0):
+        return dx*dy
+    else:
+        return -1
+
+
 def model_predict(model, frame):
 
     results = model.predict(frame)
@@ -45,9 +54,26 @@ def model_predict(model, frame):
     return player_box_list, ball_box
 
 
-def player_color_from_frame(player_box_list, frame):
-    #Compute the hue of grass:
-    grass_average = frame[:,:,::-1].mean(axis=0).mean(axis=0)
+def filter_boxes_by_obscurity(box_list, threshold=10):
+    # Get the average distance height of player boxes
+    box_height_list = [box[3] - box[1] for box in box_list]
+    box_height_average = np.mean(box_height_list)
+    filtered_box_list = []
+    for box in box_list:
+        box_height = box[3] - box[1]
+        if box_height > box_height_average - threshold:
+            filtered_box_list.append(box)
+    return filtered_box_list
+
+
+def player_color_from_frame(player_box_list, frame, grass_mask):
+    # Remove black from mask
+    con1 = grass_mask[:,:,0] != 0
+    con2 = grass_mask[:,:,1] != 0
+    con3 = grass_mask[:,:,2] != 0
+    grass_mask = grass_mask[np.where(con1 & con2 & con3)]
+    # Compute the hue of grass:
+    grass_average = grass_mask.mean(axis=0)
     color_list = []
 
     for box in player_box_list:
@@ -70,39 +96,41 @@ def cluster_objects_by_color(color_list):
     return team_1_idx, team_2_idx, misc_idx
 
 
-def match_color(lab_color_1,lab_color_2):
-    threshold = 30
+def match_color(lab_color_1, lab_color_2, threshold=30):
     diff = delta_e_cie2000(lab_color_1,lab_color_2)
     if diff > threshold:
         return False
     else:
         return True 
 
+def get_teams_average_color(color_list):
+    team_1_idx, team_2_idx, misc_idx = cluster_objects_by_color(color_list)
+    team_1_color = np.mean([color_list[i] for i in team_1_idx], axis=0)
+    team_2_color = np.mean([color_list[i] for i in team_2_idx], axis=0)
+
+    return team_1_color, team_2_color
+
+
 def fix_annotation_by_color(color_list, team_1_global_color, team_2_global_color,
-                             threshold=60):
+                            threshold=30):
     team_1_idx, team_2_idx, misc_idx = cluster_objects_by_color(color_list)
 
-    lab_team_1_color = rgb_to_lab_color(team_1_global_color)
-    lab_team_2_color = rgb_to_lab_color(team_2_global_color)
-    lab_color_list = [rgb_to_lab_color(x) for x in color_list]
+    lab_team_1_color = rgb2lab(team_1_global_color)
+    lab_team_2_color = rgb2lab(team_2_global_color)
+    lab_color_list = [rgb2lab(x) for x in color_list]
 
     fixed_team_1_idx = []
     fixed_team_2_idx = []
     fixed_misc_idx = []
     for i in range(len(color_list)):
-        lab_color_box = lab_color_list[i]
-        delta_1 = delta_e_cie2000(lab_team_1_color, lab_color_box)
-        delta_2 = delta_e_cie2000(lab_team_2_color, lab_color_box)
-
-        if i in team_1_idx:
-            if delta_2 > threshold and delta_2 < 30:
-                fixed_team_2_idx.append(i)
-            else:
-                fixed_misc_idx.append(i)
+        if match_color(lab_color_list[i], lab_team_1_color, threshold):
+            fixed_team_1_idx.append(i)
+        elif match_color(lab_color_list[i], lab_team_2_color, threshold):
+            fixed_team_2_idx.append(i)
+        else:
+            fixed_misc_idx.append(i)
 
     return fixed_team_1_idx, fixed_team_2_idx, fixed_misc_idx
-
-
 
 
 
@@ -122,6 +150,27 @@ def is_same_object(previous_bounding_box, current_bounding_box, threshold=15):
     else:
         return False
     
+
+def in_possession(ball_box, player_box, intersection_threshold=10, distance_threshold=10):
+    intersection_area = box_intersection(ball_box, player_box)
+    distance = np.linalg.norm(np.array(box_center(ball_box)) - np.array(box_center(player_box)))
+
+    if intersection_area <= intersection_threshold and distance <= distance_threshold:
+        return True
+    else:
+        return False
+
+
+def in_collision(player_box_1, player_box_2, intersection_threshold=10, distance_threshold=10):
+    intersection_area = box_intersection(player_box_1, player_box_2)
+    distance = np.linalg.norm(np.array(box_bottom_coord(player_box_1)) - np.array(box_bottom_coord(player_box_2)))
+
+    if intersection_area <= intersection_threshold and distance <= distance_threshold:
+        return True
+    else:
+        return False
+
+
 
 def visualize_team_players(frame, team_1_box, team_2_box=None, misc_box=None, ball_box=None):
     temp = frame.copy()
@@ -153,9 +202,11 @@ def visualize_team_players(frame, team_1_box, team_2_box=None, misc_box=None, ba
 
     if ball_box:
         cv2.rectangle(temp, (ball_box[0], ball_box[1]), (ball_box[2], ball_box[3]),
-                    (255, 0, 0), 3)
+                    (0, 255, 0), 3)
         bottom = box_bottom_coord(ball_box)
         cv2.circle(temp, bottom, 7, (0, 255, 0), -1)
 
     plt.figure()
     plt.imshow(temp)
+
+

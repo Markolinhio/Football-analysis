@@ -762,7 +762,7 @@ def box_to_features(rgb_image, boxes, frame_number):
 
 
 # Convert rgb to CLE_lab for computing the difference between 2 different colors
-def rgb_to_lab_color(rgb_color):
+def rgb2lab(rgb_color):
     # Input rgb color
     # Output CLE_lab color
     srgb = sRGBColor(rgb_color[0],rgb_color[1],rgb_color[2])
@@ -785,9 +785,9 @@ def misc_in_teams(labels, color_list, teams, threshold = 50):
     team_2_color = np.mean([color_list[i] for i in team_2],axis =0)
         
     # Convert rgb to lab
-    lab_team_1_color = rgb_to_lab_color(team_1_color)
-    lab_team_2_color = rgb_to_lab_color(team_2_color)
-    lab_color_list = [rgb_to_lab_color(x) for x in color_list]
+    lab_team_1_color = rgb2lab(team_1_color)
+    lab_team_2_color = rgb2lab(team_2_color)
+    lab_color_list = [rgb2lab(x) for x in color_list]
 
     # All the number labels the KMeans gives
     updated_labels = labels
@@ -852,7 +852,7 @@ def position_text(player_center_coord,new_team_1,new_team_2,new_misc):
 
 
 def update_misc_color(team_1_idx, team_2_idx, misc_idx, global_color_dict, current_color_dict, labels):
-    global_misc_lab_color = [rgb_to_lab_color(x) for x in global_color_dict['misc_color']]
+    global_misc_lab_color = [rgb2lab(x) for x in global_color_dict['misc_color']]
     team_1_diff = [delta_e_cie2000(global_color_dict['team_1_color'], x) for x in current_color_dict['current_misc_lab_colors']]
     team_2_diff = [delta_e_cie2000(global_color_dict['team_2_color'], x) for x in current_color_dict['current_misc_lab_colors']]
     current_misc_position, left_team, right_team = position_text(current_color_dict['player_center_coord_list'], team_1_idx, team_2_idx, misc_idx)
@@ -1105,7 +1105,7 @@ def write_coco_with_player_differentiation(vid_name, model_name, data_path, mode
             # Update the misc color: 
             current_misc_box_coord = [box_coord_list[i] for i in misc_idx]
             current_misc_color = [assignment[i] for i in misc_idx]
-            current_misc_lab_colors   = [rgb_to_lab_color(x) for x in current_misc_color]
+            current_misc_lab_colors   = [rgb2lab(x) for x in current_misc_color]
 
             current_misc_dict = {'player_center_coord_list': player_center_coord_list,
                                 'current_misc_box_coord': current_misc_box_coord,
