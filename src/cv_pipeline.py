@@ -26,6 +26,13 @@ def box_bottom_coord(bounding_box):
     return (bottom_centerX, bottom_centerY)
 
 
+def calculate_distance(box1, box2):
+    """
+    Calculate the Euclidean distance between the centers of two bounding boxes.
+    """
+    return np.linalg.norm(box_center(box1) - box_center(box2))
+
+
 def box_intersection(bounding_box_1, bounding_box_2):
     dx = min(bounding_box_1[2], bounding_box_2[2]) - max(bounding_box_1[0], bounding_box_2[0])
     dy = min(bounding_box_1[3], bounding_box_2[3]) - max(bounding_box_1[1], bounding_box_2[1])
@@ -159,6 +166,42 @@ def in_possession(ball_box, player_box, intersection_threshold=10, distance_thre
         return True
     else:
         return False
+    
+
+def distance_from_ball(ball_box, player_box):
+    return np.linalg.norm(np.array(box_center(ball_box)) - np.array(box_center(player_box)))
+
+def check_possession(team_1_box, team_2_box, ball_box, current_possession):
+    """
+    Check which team possesses the ball
+    If no player possesses the ball or there are no balls in the frame, return the possession of the previous frame (current_possession)
+    If many players are closed to the ball, possession belongs to the closest one
+    
+    Return:
+        Possession: 1 or 2
+    """
+    if ball_box==None:
+        return current_possession
+    
+    possession = None
+    min_dist = 99999999999999
+    for player_box in team_1_box:
+        if in_possession(ball_box, player_box):
+            if distance_from_ball(ball_box, player_box) < min_dist:
+                possession = 1
+                min_dist = distance_from_ball(ball_box, player_box)
+            
+    for player_box in team_2_box:
+        if in_possession(ball_box, player_box):
+            if distance_from_ball(ball_box, player_box) < min_dist:
+                possession = 2
+                min_dist = distance_from_ball(ball_box, player_box)
+            
+    if possession==None:
+        return current_possession
+    
+    return possession
+    
 
 
 def in_collision(player_box_1, player_box_2, intersection_threshold=10, distance_threshold=10):
@@ -169,10 +212,43 @@ def in_collision(player_box_1, player_box_2, intersection_threshold=10, distance
         return True
     else:
         return False
+    
+
+def check_collision(team_1_box, team_2_box, misc_box):
+    """
+    If 2 player boxes collides then remove both
+    If a player box collides with a misc box then remove the misc one
+    
+    Return:
+        team_1_uncollided
+        team_2_uncollided
+        misc_uncollided
+    """
+    # Check within a team
+    team_1_uncollided = [
+        box 
+            for i, box in enumerate(team_1_box) 
+                if all(not in_collision(box, other_box) 
+                    for other_box in team_1_box[:i] + team_1_box[i+1:])
+    ]
+    team_2_uncollided = [
+        box 
+            for i, box in enumerate(team_2_box) 
+                if all(not in_collision(box, other_box) 
+                    for other_box in team_2_box[:i] + team_2_box[i+1:])
+    ]
+    
+    # Check between 2 teams
+    team_1_uncollided = [a for a, b in zip(team_1_uncollided, team_2_uncollided) if not in_collision(a, b)]
+    team_2_uncollided = [b for a, b in zip(team_1_uncollided, team_2_uncollided) if not in_collision(a, b)]
+    
+    # Check misc if collided with players
+    misc_uncollided = [a for a, b in zip(misc_box, team_1_uncollided+team_2_uncollided) if not in_collision(a, b)]
+    
+    return team_1_uncollided, team_2_uncollided, misc_uncollided
 
 
-def visualize_team_players(frame, team_1_box, team_2_box=None, misc_box=None, ball_box=None, 
-                           team_1_player_ids=None, team_2_player_ids=None, misc_player_ids=None):
+def visualize_team_players(frame, team_1_box, team_2_box=None, misc_box=None, ball_box=None):
     temp = frame.copy()
     for player_box in team_1_box:
         center = box_center(player_box)
@@ -181,7 +257,6 @@ def visualize_team_players(frame, team_1_box, team_2_box=None, misc_box=None, ba
         cv2.circle(temp, bottom, 7, (0, 255, 0), -1)
         cv2.rectangle(temp, (player_box[0], player_box[1]), (player_box[2], player_box[3]),
                     (255, 0, 0), 3)
-        draw_player_id_team_1(temp, player_box, team_1_player_ids)
 
     if team_2_box:    
         for player_box in team_2_box:
@@ -191,7 +266,6 @@ def visualize_team_players(frame, team_1_box, team_2_box=None, misc_box=None, ba
             cv2.circle(temp, bottom, 7, (0, 255, 0), -1)
             cv2.rectangle(temp, (player_box[0], player_box[1]), (player_box[2], player_box[3]),
                         (0, 0, 255), 3)
-            draw_player_id_team_2(temp, player_box, team_2_player_ids)
     
     if misc_box:
         for player_box in misc_box:
@@ -201,7 +275,6 @@ def visualize_team_players(frame, team_1_box, team_2_box=None, misc_box=None, ba
             cv2.circle(temp, bottom, 7, (0, 255, 0), -1)
             cv2.rectangle(temp, (player_box[0], player_box[1]), (player_box[2], player_box[3]),
                         (255, 0, 255), 3)
-            draw_player_id_misc(temp, player_box, misc_player_ids)
 
     if ball_box:
         cv2.rectangle(temp, (ball_box[0], ball_box[1]), (ball_box[2], ball_box[3]),
@@ -211,23 +284,5 @@ def visualize_team_players(frame, team_1_box, team_2_box=None, misc_box=None, ba
 
     plt.figure()
     plt.imshow(temp)
-
-
-def draw_player_id_team_1(image, player_box, player_ids):
-    player_id = player_ids.get(f"player_{player_box[0]}_{player_box[1]}_{player_box[2]}_{player_box[3]}", "")
-    cv2.putText(image, str(player_id), (player_box[0], player_box[1] - 10),
-                cv2.FONT_HERSHEY_SIMPLEX, 2.5, (255, 0, 0), 5)
-    
-    
-def draw_player_id_team_2(image, player_box, player_ids):
-    player_id = player_ids.get(f"player_{player_box[0]}_{player_box[1]}_{player_box[2]}_{player_box[3]}", "")
-    cv2.putText(image, str(player_id), (player_box[0], player_box[1] - 10),
-                cv2.FONT_HERSHEY_SIMPLEX, 2.5, (0, 0, 255), 5)
-
-    
-def draw_player_id_misc(image, player_box, player_ids):
-    player_id = player_ids.get(f"player_{player_box[0]}_{player_box[1]}_{player_box[2]}_{player_box[3]}", "")
-    cv2.putText(image, str(player_id), (player_box[0], player_box[1] - 10),
-                cv2.FONT_HERSHEY_SIMPLEX, 2.5, (255, 0, 255), 5)
 
 

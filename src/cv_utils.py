@@ -188,7 +188,7 @@ def pitch_segment(image, model, visualize=False, device=None):
         test_image_tensor = transform(test_image).unsqueeze(0).to(device)
         model.to(device)
         predicted_mask = model(test_image_tensor)
-        predicted_mask = F.softmax(predicted_mask)
+        predicted_mask = F.softmax(predicted_mask, dim=1)
         predicted_mask = (torch.argmax(predicted_mask.cpu(), dim=1).squeeze(1)[0]*42).numpy().astype(np.int32)
         
     test_image_np = test_image_tensor.squeeze().permute(1, 2, 0).cpu().numpy()
