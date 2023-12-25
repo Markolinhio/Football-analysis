@@ -383,7 +383,7 @@ def merge_coco_dataset(coco_dataset_path_1, coco_dataset_path_2, dest_path=None)
     with open(os.path.join(dest_coco_path, 'instances_default.json'), 'w') as f:
         json.dump(final_coco, f)
 
-    return dest_coco_path
+    return dest_path
             
 
 # Convert COCO dataset to YOLO dataset format        
