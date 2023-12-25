@@ -248,24 +248,16 @@ def check_collision(team_1_box, team_2_box, misc_box):
     return team_1_uncollided, team_2_uncollided, misc_uncollided
 
 
-def visualize_team_players(frame, default_formation_dict, team_1_box, team_2_box=None, misc_box=None, ball_box=None):
+def visualize_team_players(frame, team_1_box, team_2_box=None, misc_box=None, ball_box=None):
     temp = frame.copy()
-    
-    # Visualize team 1 players
     for player_box in team_1_box:
         center = box_center(player_box)
         cv2.circle(temp, center, 7, (0, 255, 0), -1)
         bottom = box_bottom_coord(player_box)
         cv2.circle(temp, bottom, 7, (0, 255, 0), -1)
         cv2.rectangle(temp, (player_box[0], player_box[1]), (player_box[2], player_box[3]),
-                      (255, 0, 0), 3)
-        
-        # Retrieve player ID from default_formation_dict and display it
-        for player_id, player_info in default_formation_dict['home_players'].items():
-            if player_info['box'] == player_box:
-                cv2.putText(temp, player_id, center, cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 2, cv2.LINE_AA)
+                    (255, 0, 0), 3)
 
-    # Visualize team 2 players
     if team_2_box:    
         for player_box in team_2_box:
             center = box_center(player_box)
@@ -273,14 +265,8 @@ def visualize_team_players(frame, default_formation_dict, team_1_box, team_2_box
             bottom = box_bottom_coord(player_box)
             cv2.circle(temp, bottom, 7, (0, 255, 0), -1)
             cv2.rectangle(temp, (player_box[0], player_box[1]), (player_box[2], player_box[3]),
-                          (0, 0, 255), 3)
-            
-            # Retrieve player ID from default_formation_dict and display it
-            for player_id, player_info in default_formation_dict['away_players'].items():
-                if player_info['box'] == player_box:
-                    cv2.putText(temp, player_id, center, cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 2, cv2.LINE_AA)
-
-    # Visualize miscellaneous players
+                        (0, 0, 255), 3)
+    
     if misc_box:
         for player_box in misc_box:
             center = box_center(player_box)
@@ -288,12 +274,11 @@ def visualize_team_players(frame, default_formation_dict, team_1_box, team_2_box
             bottom = box_bottom_coord(player_box)
             cv2.circle(temp, bottom, 7, (0, 255, 0), -1)
             cv2.rectangle(temp, (player_box[0], player_box[1]), (player_box[2], player_box[3]),
-                          (255, 0, 255), 3)
+                        (255, 0, 255), 3)
 
-    # Visualize the ball
     if ball_box:
         cv2.rectangle(temp, (ball_box[0], ball_box[1]), (ball_box[2], ball_box[3]),
-                      (0, 255, 0), 3)
+                    (0, 255, 0), 3)
         bottom = box_bottom_coord(ball_box)
         cv2.circle(temp, bottom, 7, (0, 255, 0), -1)
 
