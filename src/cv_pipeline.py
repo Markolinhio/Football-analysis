@@ -61,14 +61,14 @@ def model_predict(model, frame):
     return player_box_list, ball_box
 
 
-def filter_boxes_by_obscurity(box_list, threshold=10):
-    # Get the average distance height of player boxes
-    box_height_list = [box[3] - box[1] for box in box_list]
-    box_height_average = np.mean(box_height_list)
+def filter_boxes_by_obscurity(box_list, threshold=2000):
+    # Get the average area of player boxes
+    box_area_list = [(box[3] - box[1])*(box[2] - box[0]) for box in box_list]
+    box_area_average = np.median(box_area_list)
     filtered_box_list = []
     for box in box_list:
-        box_height = box[3] - box[1]
-        if box_height > box_height_average - threshold:
+        box_area = (box[3] - box[1])*(box[2] - box[0])
+        if box_area > threshold:
             filtered_box_list.append(box)
     return filtered_box_list
 
