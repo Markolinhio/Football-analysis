@@ -158,7 +158,7 @@ def is_same_object(previous_bounding_box, current_bounding_box, threshold=15):
         return False
     
 
-def in_possession(ball_box, player_box, intersection_threshold=10, distance_threshold=10):
+def in_possession(ball_box, player_box, intersection_threshold=100, distance_threshold=100):
     intersection_area = box_intersection(ball_box, player_box)
     distance = np.linalg.norm(np.array(box_center(ball_box)) - np.array(box_center(player_box)))
 
@@ -301,3 +301,32 @@ def visualize_team_players(frame, default_formation_dict, team_1_box, team_2_box
     plt.imshow(temp)
 
 
+def check_for_pass(team_1_box, team_2_box, ball_box, current_possession, frame_count):
+    """
+    Checks for a pass within a 10-frame window.
+    
+    Returns:
+       True if a pass is detected, False otherwise.
+    """
+
+    if ball_box is None:
+        return False
+
+    if current_possession == 1:
+        players_to_check = team_1_box
+    else:
+        players_to_check = team_2_box
+
+    if any(in_possession(ball_box, player_box) for player_box in players_to_check):
+        return False
+
+    recent_frames = []
+    for _ in range(10):
+        recent_frames.append((team_1_box, team_2_box, ball_box, frame_count))
+        frame_count += 1
+
+        new_possession = check_possession(team_1_box, team_2_box, ball_box, current_possession)
+        if new_possession == current_possession:
+            print("Pass by team", current_possession)
+            return True
+    return False
