@@ -65,7 +65,7 @@ def detect_largest_contour(image, threshold=False):
 
 
 # Remove the audiences from the image
-def pitch_segment(rgb_image, visualize=False):
+def pitch_segment_color(rgb_image, visualize=False):
     # Find peak range of pixel value histogram for pitch segmentation
     def find_peak_range(hsv_image):
         hue = hsv_image[:, :, 0]
