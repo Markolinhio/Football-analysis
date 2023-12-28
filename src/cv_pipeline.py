@@ -299,6 +299,52 @@ def visualize_team_players(frame, default_formation_dict, team_1_box, team_2_box
 
     plt.figure()
     plt.imshow(temp)
+    
+def visualize_team_players_with_id(frame, team_1_box, team_2_box=None, misc_box=None, ball_box=None, team_1_ids=None, team_2_ids=None):
+    temp = frame.copy()
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.5
+    font_thickness = 1
+
+    if team_1_ids:
+        for idx, player_box in zip(team_1_ids, team_1_box):
+            center = box_center(player_box)
+            cv2.circle(temp, center, 7, (0, 255, 0), -1)
+            bottom = box_bottom_coord(player_box)
+            cv2.circle(temp, bottom, 7, (0, 255, 0), -1)
+            cv2.rectangle(temp, (player_box[0], player_box[1]), (player_box[2], player_box[3]),
+                          (255, 0, 0), 3)
+            cv2.putText(temp, str(idx), (player_box[0], player_box[1] - 10), font,
+                        font_scale, (255, 255, 255), font_thickness, cv2.LINE_AA)
+
+    if team_2_box and team_2_ids:
+        for idx, player_box in zip(team_2_ids, team_2_box):
+            center = box_center(player_box)
+            cv2.circle(temp, center, 7, (0, 255, 0), -1)
+            bottom = box_bottom_coord(player_box)
+            cv2.circle(temp, bottom, 7, (0, 255, 0), -1)
+            cv2.rectangle(temp, (player_box[0], player_box[1]), (player_box[2], player_box[3]),
+                          (0, 0, 255), 3)
+            cv2.putText(temp, str(idx), (player_box[0], player_box[1] - 10), font,
+                        font_scale, (255, 255, 255), font_thickness, cv2.LINE_AA)
+
+    if misc_box:
+        for player_box in misc_box:
+            center = box_center(player_box)
+            cv2.circle(temp, center, 7, (0, 255, 0), -1)
+            bottom = box_bottom_coord(player_box)
+            cv2.circle(temp, bottom, 7, (0, 255, 0), -1)
+            cv2.rectangle(temp, (player_box[0], player_box[1]), (player_box[2], player_box[3]),
+                          (255, 0, 255), 3)
+
+    if ball_box:
+        cv2.rectangle(temp, (ball_box[0], ball_box[1]), (ball_box[2], ball_box[3]),
+                      (0, 255, 0), 3)
+        bottom = box_bottom_coord(ball_box)
+        cv2.circle(temp, bottom, 7, (0, 255, 0), -1)
+
+    plt.figure()
+    plt.imshow(temp)
 
 
 def check_for_pass(team_1_box, team_2_box, ball_box, current_possession, frame_count):
